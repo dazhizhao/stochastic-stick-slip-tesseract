@@ -106,3 +106,6 @@ compile_commands.json
 # Tesseract / Docker local files if generated
 .tesseract/
 docker-compose.override.yml
+
+# Local agent instructions
+AGENTS.md
