@@ -7,7 +7,11 @@ from importlib.metadata import version
 import jax
 import jax.numpy as jnp
 import jax_fem
+import basix
+import gmsh
+import meshio
 import torch
+from petsc4py import PETSc
 import tesseract_core
 from tesseract_core import Tesseract
 import tesseract_jax
@@ -26,6 +30,11 @@ print(f"JAX sum(x**2): {jnp.sum(x**2)}")
 print(f"JAX grad(x**2) at 2: {jax.grad(lambda value: value**2)(2.0)}")
 
 print(f"JAX-FEM import: OK ({version('jax-fem')})")
+print(f"meshio import: OK ({version('meshio')})")
+print(f"Gmsh import: OK ({version('gmsh')})")
+print(f"FEniCS Basix import: OK ({version('fenics-basix')})")
+print(f"PETSc version: {PETSc.Sys.getVersion()}")
+print(f"petsc4py import: OK ({version('petsc4py')})")
 
 print(f"PyTorch version: {torch.__version__}")
 print(f"PyTorch MPS available: {torch.backends.mps.is_available()}")
