@@ -16,11 +16,17 @@ from jax_fem.problem import Problem
 
 
 TRAINING_SEEDS = np.array([11, 23, 37, 41, 53, 67, 79, 97], dtype=np.int64)
+HELD_OUT_SEEDS = np.array(
+    [101, 103, 107, 109, 113, 127, 131, 137], dtype=np.int64
+)
 BASELINE_DAMPING = 0.2
 BASELINE_PRELOADS = (0.04, 0.02, 0.06)
 FRICTION_COEFFICIENT = 0.4
 CONTACT_STIFFNESS = 0.2
 FD_RELATIVE_EPSILON = 0.05
+COEFFICIENT_FD_EPSILON = 0.02
+PRELOAD_MODULATION = 0.02
+NUM_FOURIER_COEFFICIENTS = 5
 
 YOUNG_MODULUS = 1000.0
 POISSON_RATIO = 0.3
@@ -234,11 +240,17 @@ def _assemble_system() -> FEMSystem:
 SYSTEM = _assemble_system()
 
 
-def forcing_history(seed: int) -> np.ndarray:
-    """Return the complete deterministic force history for one seed."""
+def forcing_parameters(seed: int) -> tuple[np.ndarray, np.ndarray]:
+    """Return the amplitudes and phases that completely define one forcing."""
     generator = np.random.default_rng(int(seed))
     amplitudes = generator.uniform(0.85, 1.15, size=2)
     phases = generator.uniform(0.0, 2.0 * np.pi, size=2)
+    return amplitudes, phases
+
+
+def forcing_history(seed: int) -> np.ndarray:
+    """Return the complete deterministic force history for one seed."""
+    amplitudes, phases = forcing_parameters(seed)
     times = np.asarray(SYSTEM.times)
     return FORCING_AMPLITUDE * (
         amplitudes[0]
@@ -251,6 +263,48 @@ def forcing_history(seed: int) -> np.ndarray:
 
 def forcing_batch(seeds: np.ndarray) -> jax.Array:
     return jnp.asarray(np.stack([forcing_history(int(seed)) for seed in seeds]))
+
+
+def forcing_descriptor(seed: int) -> np.ndarray:
+    """Return the six normalized forcing features used by the controller."""
+    amplitudes, phases = forcing_parameters(seed)
+    return np.array(
+        [
+            (amplitudes[0] - 1.0) / 0.15,
+            (amplitudes[1] - 1.0) / 0.15,
+            np.sin(phases[0]),
+            np.cos(phases[0]),
+            np.sin(phases[1]),
+            np.cos(phases[1]),
+        ],
+        dtype=np.float64,
+    )
+
+
+def forcing_descriptor_batch(seeds: np.ndarray) -> np.ndarray:
+    return np.stack([forcing_descriptor(int(seed)) for seed in seeds])
+
+
+FOURIER_BASIS = jnp.stack(
+    (
+        jnp.ones(NUM_STEPS, dtype=jnp.float64),
+        jnp.cos(0.9 * SYSTEM.omega_1 * SYSTEM.times),
+        jnp.sin(0.9 * SYSTEM.omega_1 * SYSTEM.times),
+        jnp.cos(1.35 * SYSTEM.omega_1 * SYSTEM.times),
+        jnp.sin(1.35 * SYSTEM.omega_1 * SYSTEM.times),
+    ),
+    axis=1,
+)
+
+
+def preload_history(
+    base_preload: float | jax.Array,
+    coefficients: np.ndarray | jax.Array,
+) -> jax.Array:
+    """Map the five fixed Fourier coefficients to a bounded preload history."""
+    coefficients = jnp.asarray(coefficients, dtype=jnp.float64)
+    signal = coefficients @ FOURIER_BASIS.T
+    return base_preload + PRELOAD_MODULATION * jnp.tanh(signal)
 
 
 def _factor_solve(cholesky_factor: jax.Array, right_hand_side: jax.Array):
@@ -310,15 +364,19 @@ def _select_contact_regime(
     return contact_force, contact_displacement, regime
 
 
-def _simulate_batch_impl(q: jax.Array, forcing: jax.Array):
-    damping, preload = q
+def _simulate_batch_impl(
+    q: jax.Array,
+    coefficients: jax.Array,
+    forcing: jax.Array,
+):
+    damping, base_preload = q
     dt = SYSTEM.time_step
     mass = SYSTEM.mass
     stiffness = SYSTEM.stiffness
     load = SYSTEM.load
     observation = SYSTEM.observation
     contacts = SYSTEM.contacts
-    friction_limit = FRICTION_COEFFICIENT * preload
+    preload = preload_history(base_preload, coefficients)
 
     effective_matrix = stiffness + mass / dt**2 + damping * mass / dt
     cholesky_factor = jnp.linalg.cholesky(effective_matrix)
@@ -326,7 +384,7 @@ def _simulate_batch_impl(q: jax.Array, forcing: jax.Array):
     contact_compliance = contacts.T @ contact_response
     zero_displacement = jnp.zeros(stiffness.shape[0], dtype=jnp.float64)
 
-    def simulate_seed(seed_forcing):
+    def simulate_seed(seed_forcing, seed_preload):
         initial_state = (
             zero_displacement,
             zero_displacement,
@@ -334,7 +392,8 @@ def _simulate_batch_impl(q: jax.Array, forcing: jax.Array):
             jnp.zeros(2, dtype=jnp.bool_),
         )
 
-        def step(state, external_force):
+        def step(state, step_inputs):
+            external_force, current_preload = step_inputs
             previous, previous_previous, slider_position, was_slipping = state
             history = (
                 mass @ (2.0 * previous - previous_previous) / dt**2
@@ -349,7 +408,7 @@ def _simulate_batch_impl(q: jax.Array, forcing: jax.Array):
                     free_contact_displacement,
                     slider_position,
                     contact_compliance,
-                    friction_limit,
+                    FRICTION_COEFFICIENT * current_preload,
                 )
             )
             displacement_vector = free_solution + contact_response @ contact_force
@@ -383,19 +442,29 @@ def _simulate_batch_impl(q: jax.Array, forcing: jax.Array):
             )
             return next_state, output
 
-        _, outputs = jax.lax.scan(step, initial_state, seed_forcing)
+        _, outputs = jax.lax.scan(
+            step, initial_state, (seed_forcing, seed_preload)
+        )
         return outputs
 
-    return jax.vmap(simulate_seed)(forcing)
+    return jax.vmap(simulate_seed)(forcing, preload)
 
 
 _simulate_batch = jax.jit(_simulate_batch_impl)
 
 
-def evaluate_batch(q: np.ndarray | jax.Array, seeds: np.ndarray) -> BatchResult:
-    """Evaluate the hard two-contact response for a fixed seed batch."""
+def evaluate_controlled_batch(
+    q: np.ndarray | jax.Array,
+    coefficients: np.ndarray | jax.Array,
+    seeds: np.ndarray,
+) -> BatchResult:
+    """Evaluate the hard response with one Fourier control per seed."""
     displacement, velocity, slip, stick_to_slip, slip_to_stick = (
-        _simulate_batch(jnp.asarray(q, dtype=jnp.float64), forcing_batch(seeds))
+        _simulate_batch(
+            jnp.asarray(q, dtype=jnp.float64),
+            jnp.asarray(coefficients, dtype=jnp.float64),
+            forcing_batch(seeds),
+        )
     )
     losses = jnp.mean(displacement**2, axis=1)
     return BatchResult(
@@ -406,6 +475,14 @@ def evaluate_batch(q: np.ndarray | jax.Array, seeds: np.ndarray) -> BatchResult:
         stick_to_slip=jnp.sum(stick_to_slip, axis=1),
         slip_to_stick=jnp.sum(slip_to_stick, axis=1),
     )
+
+
+def evaluate_batch(q: np.ndarray | jax.Array, seeds: np.ndarray) -> BatchResult:
+    """Evaluate the H1.5 constant-preload response."""
+    coefficients = np.zeros(
+        (len(seeds), NUM_FOURIER_COEFFICIENTS), dtype=np.float64
+    )
+    return evaluate_controlled_batch(q, coefficients, seeds)
 
 
 def switching_gate(result: BatchResult) -> bool:
@@ -446,5 +523,55 @@ def crn_fd_jacobian(
         minus[index] -= epsilon
         plus_losses = np.asarray(evaluate_batch(plus, seeds).losses)
         minus_losses = np.asarray(evaluate_batch(minus, seeds).losses)
+        columns.append((plus_losses - minus_losses) / (2.0 * epsilon))
+    return np.stack(columns, axis=1)
+
+
+def crn_fd_controlled_q_jacobian(
+    q: np.ndarray | jax.Array,
+    coefficients: np.ndarray | jax.Array,
+    seeds: np.ndarray,
+    epsilon_multiplier: float = 1.0,
+) -> np.ndarray:
+    """Return d(seed_losses)/dq at fixed Fourier coefficients."""
+    q_array = np.asarray(q, dtype=np.float64)
+    coefficients_array = np.asarray(coefficients, dtype=np.float64)
+    epsilons = FD_RELATIVE_EPSILON * q_array * epsilon_multiplier
+    columns = []
+    for index, epsilon in enumerate(epsilons):
+        plus = q_array.copy()
+        minus = q_array.copy()
+        plus[index] += epsilon
+        minus[index] -= epsilon
+        plus_losses = np.asarray(
+            evaluate_controlled_batch(plus, coefficients_array, seeds).losses
+        )
+        minus_losses = np.asarray(
+            evaluate_controlled_batch(minus, coefficients_array, seeds).losses
+        )
+        columns.append((plus_losses - minus_losses) / (2.0 * epsilon))
+    return np.stack(columns, axis=1)
+
+
+def crn_fd_coefficient_jacobian(
+    q: np.ndarray | jax.Array,
+    coefficients: np.ndarray | jax.Array,
+    seeds: np.ndarray,
+    epsilon: float = COEFFICIENT_FD_EPSILON,
+) -> np.ndarray:
+    """Return the eight independent five-dimensional CRN-FD gradients."""
+    coefficients_array = np.asarray(coefficients, dtype=np.float64)
+    columns = []
+    for index in range(NUM_FOURIER_COEFFICIENTS):
+        plus = coefficients_array.copy()
+        minus = coefficients_array.copy()
+        plus[:, index] += epsilon
+        minus[:, index] -= epsilon
+        plus_losses = np.asarray(
+            evaluate_controlled_batch(q, plus, seeds).losses
+        )
+        minus_losses = np.asarray(
+            evaluate_controlled_batch(q, minus, seeds).losses
+        )
         columns.append((plus_losses - minus_losses) / (2.0 * epsilon))
     return np.stack(columns, axis=1)

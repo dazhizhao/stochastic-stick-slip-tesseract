@@ -1,14 +1,16 @@
-# Stochastic Stick-Slip Vibration Suppression
+# Stochastic Stick-Slip Vibration Suppression with Tesseract
 
-Stage H1.5 is a local Tesseract optimization loop for stochastic vibration suppression. A 16×2 QUAD4 cantilever is assembled with JAX-FEM, advanced with dense JAX time stepping, and coupled to two hard Jenkins friction elements. The two design variables remain damping `c` and shared normal preload `N`.
+This repository demonstrates mixed-gradient stochastic vibration suppression. A 16×2 QUAD4 cantilever is assembled with JAX-FEM, advanced with dense JAX time stepping, and coupled to two hard Jenkins friction elements.
 
-The hard forward model retains exact STICK/SLIP switching. Gradients across that non-smooth, stochastic boundary use centered finite differences with common random numbers. The local pipeline is:
+Stage H2 uses a small PyTorch MLP to map each stochastic forcing descriptor to five fixed Fourier coefficients. The hard forward model retains exact STICK/SLIP switching, while centered finite differences with common random numbers connect the low-dimensional control interface back to PyTorch:
 
 ```text
-q = (c, N)
-  → stick_slip_fem Tesseract (JAX-FEM + two hard Jenkins contacts + CRN-FD)
+forcing descriptor
+  → PyTorch MLP (6 → 16 → 16 → 5)
+  → five Fourier coefficients per seed
+  → stick_slip_fem Tesseract (CRN-FD + JAX-FEM + hard Jenkins contacts)
   → stochastic_objective Tesseract (mean of 8 fixed-seed losses)
-  → jax.value_and_grad
+  → PyTorch backward
 ```
 
 ## Run locally
@@ -17,9 +19,30 @@ q = (c, N)
 uv sync
 uv run pytest -q
 uv run python scripts/run_stage_h15.py
+uv run python scripts/run_stage_h2.py
 ```
 
-No Docker image, PETSc solve, server, or background job is used by Stage H1.5.
+No Docker image, PETSc solve, server, GPU, or background job is used.
+
+## Stage H2 result
+
+The native Mac CPU/Float64 run passed:
+
+- the zero-initialized MLP exactly reproduced the fixed `N=0.04` objective, `J_fixed = J_initial = 6.642794744e-3`;
+- `loss.backward()` crossed both Tesseracts with total and final-layer gradient norms of `1.616181728e-3`;
+- coefficient-FD direction cosines were `0.9993548471` and `0.9973847367` for epsilon `0.01/0.02/0.04`;
+- the first Adam step at `lr=0.01` reduced the real hard objective to `6.570569575e-3`;
+- 20 steps reached `J_final = 5.769207114e-3`, a 13.1509% training reduction;
+- held-out objective decreased from `6.385067390e-3` to `6.199324621e-3`, a 2.9090% reduction;
+- trained preload histories remained bounded in `[0.0200217, 0.0597595]`;
+- the eight coefficient rows were distinct, with maximum pairwise coefficient distance `2.62153` and maximum pairwise preload-history RMS difference `0.0215773`;
+- two complete runs reproduced the same objectives, coefficients, accepted learning rate, and PASS result.
+
+Representative results:
+
+![Fixed and learned preload and response](outputs/stage_h2/fourier_controlled_response.png)
+
+![Twenty-step training objective](outputs/stage_h2/training_objective.png)
 
 ## Stage H1.5 result
 

@@ -68,7 +68,11 @@ def test_crn_gradient_is_finite(baseline) -> None:
 def test_physics_apply_jvp_and_vjp_are_finite(baseline, tesseracts) -> None:
     q, _ = baseline
     physics, _ = tesseracts
-    inputs = {"q": q, "seeds": TRAINING_SEEDS}
+    inputs = {
+        "q": q,
+        "coeffs": np.zeros((8, 5), dtype=np.float64),
+        "seeds": TRAINING_SEEDS,
+    }
     output = physics.apply(inputs)
     jvp = physics.jacobian_vector_product(
         inputs,
@@ -92,9 +96,13 @@ def test_value_and_grad_crosses_two_local_tesseracts(baseline, tesseracts) -> No
     q, _ = baseline
     physics, objective = tesseracts
     seeds = jnp.asarray(TRAINING_SEEDS)
+    zero_coefficients = jnp.zeros((8, 5), dtype=jnp.float64)
 
     def pipeline(design):
-        response = apply_tesseract(physics, {"q": design, "seeds": seeds})
+        response = apply_tesseract(
+            physics,
+            {"q": design, "coeffs": zero_coefficients, "seeds": seeds},
+        )
         return apply_tesseract(
             objective, {"seed_losses": response["seed_losses"]}
         )["objective"]

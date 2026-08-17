@@ -12,13 +12,15 @@ from tesseract_core.runtime import (
 
 from stochastic_stick_slip.model import (
     NUM_STEPS,
-    crn_fd_jacobian,
-    evaluate_batch,
+    crn_fd_coefficient_jacobian,
+    crn_fd_controlled_q_jacobian,
+    evaluate_controlled_batch,
 )
 
 
 class InputSchema(BaseModel):
     q: Differentiable[Array[(2,), Float64]]
+    coeffs: Differentiable[Array[(8, 5), Float64]]
     seeds: Array[(8,), Int64]
 
 
@@ -36,7 +38,9 @@ class OutputSchema(BaseModel):
 
 
 def apply(inputs: InputSchema) -> OutputSchema:
-    result = evaluate_batch(inputs.q, np.asarray(inputs.seeds))
+    result = evaluate_controlled_batch(
+        inputs.q, inputs.coeffs, np.asarray(inputs.seeds)
+    )
     displacement = np.asarray(result.displacement)
     velocity = np.asarray(result.velocity)
     slip = np.asarray(result.slip, dtype=np.int64)
@@ -54,8 +58,16 @@ def apply(inputs: InputSchema) -> OutputSchema:
     )
 
 
-def _fd(inputs: InputSchema) -> np.ndarray:
-    return crn_fd_jacobian(inputs.q, np.asarray(inputs.seeds))
+def _fd_q(inputs: InputSchema) -> np.ndarray:
+    return crn_fd_controlled_q_jacobian(
+        inputs.q, inputs.coeffs, np.asarray(inputs.seeds)
+    )
+
+
+def _fd_coeffs(inputs: InputSchema) -> np.ndarray:
+    return crn_fd_coefficient_jacobian(
+        inputs.q, inputs.coeffs, np.asarray(inputs.seeds)
+    )
 
 
 def jacobian_vector_product(
@@ -64,9 +76,19 @@ def jacobian_vector_product(
     jvp_outputs: set[str],
     tangent_vector,
 ):
-    if jvp_inputs != {"q"} or jvp_outputs != {"seed_losses"}:
-        raise ValueError("stick_slip_fem differentiates seed_losses with respect to q")
-    return {"seed_losses": _fd(inputs) @ np.asarray(tangent_vector["q"])}
+    requested_inputs = set(jvp_inputs)
+    if not requested_inputs or not requested_inputs <= {"q", "coeffs"}:
+        raise ValueError("stick_slip_fem differentiates with respect to q or coeffs")
+    if set(jvp_outputs) != {"seed_losses"}:
+        raise ValueError("stick_slip_fem only differentiates seed_losses")
+    result = np.zeros(8, dtype=np.float64)
+    if "q" in requested_inputs:
+        result += _fd_q(inputs) @ np.asarray(tangent_vector["q"])
+    if "coeffs" in requested_inputs:
+        result += np.sum(
+            _fd_coeffs(inputs) * np.asarray(tangent_vector["coeffs"]), axis=1
+        )
+    return {"seed_losses": result}
 
 
 def vector_jacobian_product(
@@ -75,11 +97,18 @@ def vector_jacobian_product(
     vjp_outputs: set[str],
     cotangent_vector,
 ):
-    if vjp_inputs != {"q"} or vjp_outputs != {"seed_losses"}:
-        raise ValueError("stick_slip_fem differentiates seed_losses with respect to q")
-    return {
-        "q": np.asarray(cotangent_vector["seed_losses"]) @ _fd(inputs)
-    }
+    requested_inputs = set(vjp_inputs)
+    if not requested_inputs or not requested_inputs <= {"q", "coeffs"}:
+        raise ValueError("stick_slip_fem differentiates with respect to q or coeffs")
+    if set(vjp_outputs) != {"seed_losses"}:
+        raise ValueError("stick_slip_fem only differentiates seed_losses")
+    cotangent = np.asarray(cotangent_vector["seed_losses"])
+    result = {}
+    if "q" in requested_inputs:
+        result["q"] = cotangent @ _fd_q(inputs)
+    if "coeffs" in requested_inputs:
+        result["coeffs"] = cotangent[:, None] * _fd_coeffs(inputs)
+    return result
 
 
 def abstract_eval(abstract_inputs):

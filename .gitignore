@@ -54,6 +54,12 @@ outputs/stage_h15/*
 !outputs/stage_h15/mesh_and_two_contact_response.png
 !outputs/stage_h15/objective_history.png
 
+# Public Stage H2 result figures
+!outputs/stage_h2/
+outputs/stage_h2/*
+!outputs/stage_h2/fourier_controlled_response.png
+!outputs/stage_h2/training_objective.png
+
 # Model / checkpoint files
 *.ckpt
 *.pth

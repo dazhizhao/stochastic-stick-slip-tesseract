@@ -200,14 +200,22 @@ def main() -> int:
     physics = Tesseract.from_tesseract_api(PHYSICS_API)
     objective = Tesseract.from_tesseract_api(OBJECTIVE_API)
     seeds = jnp.asarray(TRAINING_SEEDS)
+    zero_coefficients = jnp.zeros((8, 5), dtype=jnp.float64)
 
     def pipeline(q):
-        response = apply_tesseract(physics, {"q": q, "seeds": seeds})
+        response = apply_tesseract(
+            physics,
+            {"q": q, "coeffs": zero_coefficients, "seeds": seeds},
+        )
         return apply_tesseract(
             objective, {"seed_losses": response["seed_losses"]}
         )["objective"]
 
-    physics_inputs = {"q": q0, "seeds": TRAINING_SEEDS}
+    physics_inputs = {
+        "q": q0,
+        "coeffs": np.zeros((8, 5), dtype=np.float64),
+        "seeds": TRAINING_SEEDS,
+    }
     physics_output = physics.apply(physics_inputs)
     physics_jvp = physics.jacobian_vector_product(
         physics_inputs,
