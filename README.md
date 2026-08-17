@@ -1,19 +1,123 @@
 # Stochastic Stick-Slip Vibration Suppression with Tesseract
 
-This repository demonstrates mixed-gradient stochastic vibration suppression. A 16×2 QUAD4 cantilever is assembled with JAX-FEM, advanced with dense JAX time stepping, and coupled to two hard Jenkins friction elements.
+A small Mac-native mechanics demo in which a PyTorch controller learns a
+seed-dependent friction preload through a low-dimensional Fourier interface.
+The structural response uses JAX-FEM, the contact law keeps exact hard
+STICK/SLIP switching, and Tesseract composes the different gradient systems.
 
-Stage H2 uses a small PyTorch MLP to map each stochastic forcing descriptor to five fixed Fourier coefficients. The hard forward model retains exact STICK/SLIP switching, while centered finite differences with common random numbers connect the low-dimensional control interface back to PyTorch:
+The central design choice is deliberate: finite differences never touch the
+MLP weights. They only see five Fourier coefficients for each stochastic seed.
+PyTorch autograd handles the high-dimensional network parameters, while a
+common-random-number (CRN) finite difference handles the non-smooth stochastic
+mechanics boundary.
+
+## Pipeline
 
 ```text
-forcing descriptor
-  → PyTorch MLP (6 → 16 → 16 → 5)
-  → five Fourier coefficients per seed
-  → stick_slip_fem Tesseract (CRN-FD + JAX-FEM + hard Jenkins contacts)
-  → stochastic_objective Tesseract (mean of 8 fixed-seed losses)
-  → PyTorch backward
+forcing parameters (8 fixed seeds)
+        │
+        ▼
+6 forcing descriptors per seed
+        │  PyTorch autograd
+        ▼
+MLP: 6 → 16 → 16 → 5
+        │
+        ▼
+Fourier coefficients z ∈ R^(8×5)
+        │  only this low-dimensional interface is FD'd
+        ▼
+┌──────────────────────────────────────────────────────────────┐
+│ stick_slip_fem Tesseract                                     │
+│ forward: JAX-FEM + dense dynamics + two hard Jenkins contacts │
+│ JVP/VJP: block-diagonal CRN-centered FD in z                  │
+└──────────────────────────────────────────────────────────────┘
+        │
+        ▼
+seed_losses ∈ R^8
+        │
+        ▼
+┌──────────────────────────────────────────────┐
+│ stochastic_objective Tesseract               │
+│ forward: mean(seed_losses)                   │
+│ JVP: mean tangent; VJP: cotangent / 8         │
+└──────────────────────────────────────────────┘
+        │
+        ▼
+scalar stochastic objective J
+        │  loss.backward()
+        ▼
+gradients of all PyTorch MLP parameters
 ```
 
-## Run locally
+For H2, the physics Tesseract receives fixed `q=(c,N_base)=(0.2,0.04)` and
+the MLP produces
+
+```text
+z = [a0, a1, b1, a2, b2]
+s(t) = a0 + a1 cos(w1 t) + b1 sin(w1 t)
+     + a2 cos(w2 t) + b2 sin(w2 t)
+N(t) = 0.04 + 0.02 tanh(s(t))
+```
+
+where `w1=0.9ω1` and `w2=1.35ω1` are the two existing forcing frequencies.
+The coefficient Jacobian is evaluated in five batched columns: one positive
+and one negative forward for each column, using the same seed on both sides
+(10 batch forwards total for `[8,5]`). No FFT, dynamic top-K mode selection,
+or finite difference over network weights is used.
+
+## What is frozen
+
+- 16×2 `QUAD4` cantilever, 32 elements, 102 total DOF and 96 free DOF;
+- two independent hard Jenkins contacts on the lower surface;
+- exact STICK/SLIP regime projection and slider updates;
+- the existing 800-step integration, stochastic forcing and displacement-only loss;
+- eight fixed training seeds and one disjoint eight-seed held-out set.
+
+## Results
+
+### Stage H2 — PyTorch Fourier controller
+
+The native Mac CPU/Float64 run passed.
+
+| quantity | result |
+| --- | ---: |
+| fixed objective `J_fixed` | `0.006642794744366401` |
+| zero-initialized MLP `J_initial` | `0.006642794744366401` |
+| first accepted Adam learning rate | `0.01` |
+| objective after first real hard step | `0.006570569575355878` |
+| objective after 20 steps `J_final` | `0.005769207113962147` |
+| training reduction | `13.1509%` |
+| held-out fixed objective | `0.006385067389503073` |
+| held-out trained objective | `0.006199324621437767` |
+| held-out reduction | `2.9090%` |
+| trained `N(t)` range | `[0.0200217, 0.0597595]` |
+
+The initial zero last layer reproduces the fixed `N=0.04` baseline exactly.
+After training, the eight seeds receive genuinely different controls: the
+maximum pairwise distance between coefficient rows is `2.62153`, and the
+maximum pairwise RMS difference between their preload histories is `0.0215773`.
+This is the intended role of the forcing descriptor: the network does not
+collapse to one shared preload waveform.
+
+The held-out result is reported once, after training, and is not used for any
+model or learning-rate choice.
+
+![Fixed and learned preload and representative displacement](./outputs/stage_h2/fourier_controlled_response.png)
+
+![Training objective over 20 Adam steps](./outputs/stage_h2/training_objective.png)
+
+### Stage H1.5 — two-parameter baseline
+
+The preceding public baseline also passes: all eight seeds show complete
+STICK→SLIP→STICK cycles at both contact locations, and the first CRN-FD descent
+step reduced `J` by `1.1484%`. Five accepted hard-forward steps gave a total
+reduction of `4.5074%`.
+
+![H1.5 mesh, contacts and representative response](./outputs/stage_h15/mesh_and_two_contact_response.png)
+
+![H1.5 objective history](./outputs/stage_h15/objective_history.png)
+
+## Reproduce locally
 
 ```bash
 uv sync
@@ -22,49 +126,29 @@ uv run python scripts/run_stage_h15.py
 uv run python scripts/run_stage_h2.py
 ```
 
-No Docker image, PETSc solve, server, GPU, or background job is used.
+The test suite currently reports 12 passing tests. Re-running the H2 runner
+with the fixed Torch seed reproduces the same objective history, coefficients,
+accepted learning rate and PASS result. The runs are intentionally local:
+there is no Docker image, GPU, server, PETSc solve, background job or push-time
+automation required.
 
-## Stage H2 result
+## Repository layout
 
-The native Mac CPU/Float64 run passed:
-
-- the zero-initialized MLP exactly reproduced the fixed `N=0.04` objective, `J_fixed = J_initial = 6.642794744e-3`;
-- `loss.backward()` crossed both Tesseracts with total and final-layer gradient norms of `1.616181728e-3`;
-- coefficient-FD direction cosines were `0.9993548471` and `0.9973847367` for epsilon `0.01/0.02/0.04`;
-- the first Adam step at `lr=0.01` reduced the real hard objective to `6.570569575e-3`;
-- 20 steps reached `J_final = 5.769207114e-3`, a 13.1509% training reduction;
-- held-out objective decreased from `6.385067390e-3` to `6.199324621e-3`, a 2.9090% reduction;
-- trained preload histories remained bounded in `[0.0200217, 0.0597595]`;
-- the eight coefficient rows were distinct, with maximum pairwise coefficient distance `2.62153` and maximum pairwise preload-history RMS difference `0.0215773`;
-- two complete runs reproduced the same objectives, coefficients, accepted learning rate, and PASS result.
-
-Representative results:
-
-![Fixed and learned preload and response](outputs/stage_h2/fourier_controlled_response.png)
-
-![Twenty-step training objective](outputs/stage_h2/training_objective.png)
-
-## Stage H1.5 result
-
-The native Mac run passed:
-
-- mesh: 32 elements, 102 total DOF, 96 free DOF;
-- baseline `q0 = (0.2, 0.04)` and `J(q0) = 6.642794744e-3`;
-- both contact locations exhibited complete STICK→SLIP→STICK cycles in all 8 seeds;
-- perturbing `N` changed both contact state sequences for all 8 seeds;
-- nominal two-Tesseract gradient `dJ/dq = (-4.820083778e-3, 6.233154825e-2)`;
-- the first allowed step produced `q1 = (0.2000963745, 0.0387537208)` and `J(q1) = 6.566509297e-3`, a 1.1484% reduction;
-- five accepted hard-forward steps reached `q5 = (0.2005889997, 0.0337787434)` and `J(q5) = 6.343376252e-3`, a 4.5074% total reduction;
-- warm Mac timings were approximately 0.009 s for one seed, 0.017 s for the 8-seed objective, and 0.068 s for the nominal 2D CRN gradient.
-
-Representative results:
-
-![Mesh, two contact locations, and representative response](outputs/stage_h15/mesh_and_two_contact_response.png)
-
-![Five-step objective history](outputs/stage_h15/objective_history.png)
-
-Plots are generated only after all H1.5 gates pass and are written to `outputs/stage_h15/`.
+```text
+stochastic_stick_slip/model.py                 JAX-FEM, forcing and hard contact
+stochastic_stick_slip/controller.py            deterministic PyTorch MLP
+tesseracts/stick_slip_fem/tesseract_api.py    physics apply/JVP/VJP
+tesseracts/stochastic_objective/tesseract_api.py
+                                                mean objective apply/JVP/VJP
+scripts/run_stage_h15.py                       H1.5 baseline runner
+scripts/run_stage_h2.py                        H2 training and diagnostics
+tests/                                          focused physics and composition tests
+outputs/stage_h15/                              H1.5 figures
+outputs/stage_h2/                               H2 figures
+```
 
 ## License
 
-This repository is licensed under Apache-2.0. JAX-FEM is used as an external dependency and is distributed under GPL-3.0; it is not relicensed by this repository.
+This repository is licensed under Apache-2.0. JAX-FEM is used as an external
+dependency and is distributed under GPL-3.0; no JAX-FEM source is copied into
+this repository.
