@@ -28,11 +28,11 @@ class OutputSchema(BaseModel):
     displacement_max: Array[(8,), Float64]
     velocity_min: Array[(8,), Float64]
     velocity_max: Array[(8,), Float64]
-    stick_to_slip: Array[(8,), Int64]
-    slip_to_stick: Array[(8,), Int64]
+    stick_to_slip: Array[(8, 2), Int64]
+    slip_to_stick: Array[(8, 2), Int64]
     representative_displacement: Array[(NUM_STEPS,), Float64]
     representative_velocity: Array[(NUM_STEPS,), Float64]
-    representative_slip: Array[(NUM_STEPS,), Int64]
+    representative_slip: Array[(NUM_STEPS, 2), Int64]
 
 
 def apply(inputs: InputSchema) -> OutputSchema:
@@ -90,8 +90,8 @@ def abstract_eval(abstract_inputs):
         "displacement_max": ShapeDType(shape=(8,), dtype="float64"),
         "velocity_min": ShapeDType(shape=(8,), dtype="float64"),
         "velocity_max": ShapeDType(shape=(8,), dtype="float64"),
-        "stick_to_slip": ShapeDType(shape=(8,), dtype="int64"),
-        "slip_to_stick": ShapeDType(shape=(8,), dtype="int64"),
+        "stick_to_slip": ShapeDType(shape=(8, 2), dtype="int64"),
+        "slip_to_stick": ShapeDType(shape=(8, 2), dtype="int64"),
         "representative_displacement": ShapeDType(
             shape=(NUM_STEPS,), dtype="float64"
         ),
@@ -99,6 +99,6 @@ def abstract_eval(abstract_inputs):
             shape=(NUM_STEPS,), dtype="float64"
         ),
         "representative_slip": ShapeDType(
-            shape=(NUM_STEPS,), dtype="int64"
+            shape=(NUM_STEPS, 2), dtype="int64"
         ),
     }

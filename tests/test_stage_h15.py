@@ -11,14 +11,22 @@ from tesseract_core import Tesseract
 from tesseract_jax import apply_tesseract
 
 from stochastic_stick_slip.model import (
+    SYSTEM,
     TRAINING_SEEDS,
-    calibrate_baseline,
-    evaluate_batch,
+    crn_fd_jacobian,
     forcing_history,
+    select_baseline,
 )
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+@pytest.fixture(scope="module")
+def baseline():
+    q, result = select_baseline()
+    assert q is not None
+    return q, result
 
 
 @pytest.fixture(scope="module")
@@ -38,16 +46,29 @@ def test_fixed_seed_forcing_is_reproducible() -> None:
     assert np.array_equal(first, second)
 
 
-def test_forward_is_finite_and_switches_both_ways() -> None:
-    result = evaluate_batch(calibrate_baseline(), TRAINING_SEEDS)
+def test_larger_forward_is_finite_and_both_contacts_switch(baseline) -> None:
+    _, result = baseline
+    complete_cycles = np.logical_and(
+        np.asarray(result.stick_to_slip) > 0,
+        np.asarray(result.slip_to_stick) > 0,
+    )
+    assert SYSTEM.num_free_dofs == 96
     assert np.all(np.isfinite(np.asarray(result.losses)))
-    assert np.count_nonzero(np.asarray(result.stick_to_slip) > 0) >= 2
-    assert np.count_nonzero(np.asarray(result.slip_to_stick) > 0) >= 2
+    assert np.all(np.any(complete_cycles, axis=0))
+    assert np.count_nonzero(np.any(complete_cycles, axis=1)) >= 4
 
 
-def test_physics_apply_jvp_and_vjp_are_finite(tesseracts) -> None:
+def test_crn_gradient_is_finite(baseline) -> None:
+    q, _ = baseline
+    gradient = crn_fd_jacobian(q, TRAINING_SEEDS).mean(axis=0)
+    assert np.all(np.isfinite(gradient))
+    assert np.linalg.norm(gradient) > 0.0
+
+
+def test_physics_apply_jvp_and_vjp_are_finite(baseline, tesseracts) -> None:
+    q, _ = baseline
     physics, _ = tesseracts
-    inputs = {"q": calibrate_baseline(), "seeds": TRAINING_SEEDS}
+    inputs = {"q": q, "seeds": TRAINING_SEEDS}
     output = physics.apply(inputs)
     jvp = physics.jacobian_vector_product(
         inputs,
@@ -61,23 +82,25 @@ def test_physics_apply_jvp_and_vjp_are_finite(tesseracts) -> None:
         ["seed_losses"],
         {"seed_losses": np.ones(8)},
     )
+    assert output["stick_to_slip"].shape == (8, 2)
     assert np.all(np.isfinite(output["seed_losses"]))
     assert np.all(np.isfinite(jvp["seed_losses"]))
     assert np.all(np.isfinite(vjp["q"]))
 
 
-def test_value_and_grad_crosses_two_local_tesseracts(tesseracts) -> None:
+def test_value_and_grad_crosses_two_local_tesseracts(baseline, tesseracts) -> None:
+    q, _ = baseline
     physics, objective = tesseracts
     seeds = jnp.asarray(TRAINING_SEEDS)
 
-    def pipeline(q):
-        response = apply_tesseract(physics, {"q": q, "seeds": seeds})
+    def pipeline(design):
+        response = apply_tesseract(physics, {"q": design, "seeds": seeds})
         return apply_tesseract(
             objective, {"seed_losses": response["seed_losses"]}
         )["objective"]
 
-    value, gradient = jax.value_and_grad(pipeline)(
-        jnp.asarray(calibrate_baseline())
-    )
+    value, gradient = jax.value_and_grad(pipeline)(jnp.asarray(q))
+    direct_gradient = crn_fd_jacobian(q, TRAINING_SEEDS).mean(axis=0)
     assert np.isfinite(value)
     assert np.all(np.isfinite(gradient))
+    assert np.allclose(gradient, direct_gradient, rtol=1e-10, atol=1e-12)

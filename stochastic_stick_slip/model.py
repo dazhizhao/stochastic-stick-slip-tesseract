@@ -1,4 +1,4 @@
-"""JAX-FEM cantilever dynamics with a hard Jenkins friction element."""
+"""JAX-FEM cantilever dynamics with two coupled hard Jenkins contacts."""
 
 from dataclasses import dataclass
 
@@ -8,6 +8,7 @@ jax.config.update("jax_enable_x64", True)
 
 import jax.flatten_util
 import jax.numpy as jnp
+import jax.scipy.linalg
 import numpy as np
 import scipy.linalg
 from jax_fem.generate_mesh import Mesh, get_meshio_cell_type, rectangle_mesh
@@ -16,6 +17,7 @@ from jax_fem.problem import Problem
 
 TRAINING_SEEDS = np.array([11, 23, 37, 41, 53, 67, 79, 97], dtype=np.int64)
 BASELINE_DAMPING = 0.2
+BASELINE_PRELOADS = (0.04, 0.02, 0.06)
 FRICTION_COEFFICIENT = 0.4
 CONTACT_STIFFNESS = 0.2
 FD_RELATIVE_EPSILON = 0.05
@@ -25,13 +27,30 @@ POISSON_RATIO = 0.3
 DENSITY = 1.0
 BEAM_LENGTH = 1.0
 BEAM_HEIGHT = 0.1
-NUM_ELEMENTS_X = 4
-NUM_ELEMENTS_Y = 1
+NUM_ELEMENTS_X = 16
+NUM_ELEMENTS_Y = 2
+CONTACT_COLUMNS = (11, 15)
 STEPS_PER_PERIOD = 100
 NUM_PERIODS = 8
 NUM_STEPS = STEPS_PER_PERIOD * NUM_PERIODS
 FORCING_AMPLITUDE = 0.02
-PRELOAD_QUANTILE = 0.6
+
+# Zero denotes STICK; +/-1 denote the two possible SLIP directions.  Ordering
+# candidates by slip count gives deterministic priority to sticking at equality.
+CONTACT_REGIMES = jnp.array(
+    [
+        [0, 0],
+        [0, 1],
+        [0, -1],
+        [1, 0],
+        [-1, 0],
+        [1, 1],
+        [1, -1],
+        [-1, 1],
+        [-1, -1],
+    ],
+    dtype=jnp.int64,
+)
 
 
 class _StiffnessProblem(Problem):
@@ -83,9 +102,15 @@ class FEMSystem:
     mass: jax.Array
     load: jax.Array
     observation: jax.Array
+    contacts: jax.Array
     omega_1: float
     time_step: float
     times: jax.Array
+    points: np.ndarray
+    cells: np.ndarray
+    contact_coordinates: np.ndarray
+    num_total_dofs: int
+    num_free_dofs: int
 
 
 @dataclass(frozen=True)
@@ -121,11 +146,8 @@ def _assemble_system() -> FEMSystem:
         domain_y=BEAM_HEIGHT,
     )
     cell_type = get_meshio_cell_type("QUAD4")
-    mesh = Mesh(
-        meshio_mesh.points,
-        meshio_mesh.cells_dict[cell_type],
-        ele_type="QUAD4",
-    )
+    cells = meshio_mesh.cells_dict[cell_type]
+    mesh = Mesh(meshio_mesh.points, cells, ele_type="QUAD4")
 
     def right(point):
         return jnp.isclose(point[0], BEAM_LENGTH, atol=1e-8)
@@ -162,6 +184,19 @@ def _assemble_system() -> FEMSystem:
     observation_full = np.zeros(stiffness_full.shape[0])
     observation_full[2 * right_nodes + 1] = 1.0 / len(right_nodes)
 
+    contact_x = np.asarray(CONTACT_COLUMNS) * BEAM_LENGTH / NUM_ELEMENTS_X
+    contact_nodes = []
+    for x_coordinate in contact_x:
+        matches = np.flatnonzero(
+            np.logical_and(
+                np.isclose(points[:, 0], x_coordinate),
+                np.isclose(points[:, 1], 0.0),
+            )
+        )
+        contact_nodes.append(int(matches[0]))
+    contacts_full = np.zeros((stiffness_full.shape[0], 2))
+    contacts_full[2 * np.asarray(contact_nodes) + 1, np.arange(2)] = 1.0
+
     stiffness = stiffness_full[np.ix_(free_dofs, free_dofs)]
     mass = mass_full[np.ix_(free_dofs, free_dofs)]
     stiffness = 0.5 * (stiffness + stiffness.T)
@@ -170,6 +205,7 @@ def _assemble_system() -> FEMSystem:
     load_full = surface_residual / surface_residual[1::2].sum()
     load = load_full[free_dofs]
     observation = observation_full[free_dofs]
+    contacts = contacts_full[free_dofs]
 
     eigenvalues = scipy.linalg.eigh(stiffness, mass, eigvals_only=True)
     positive_eigenvalues = eigenvalues[eigenvalues > 1e-10]
@@ -183,9 +219,15 @@ def _assemble_system() -> FEMSystem:
         mass=jnp.asarray(mass),
         load=jnp.asarray(load),
         observation=jnp.asarray(observation),
+        contacts=jnp.asarray(contacts),
         omega_1=omega_1,
         time_step=time_step,
         times=times,
+        points=points[:, :2],
+        cells=np.asarray(cells),
+        contact_coordinates=points[np.asarray(contact_nodes), :2],
+        num_total_dofs=stiffness_full.shape[0],
+        num_free_dofs=len(free_dofs),
     )
 
 
@@ -211,98 +253,147 @@ def forcing_batch(seeds: np.ndarray) -> jax.Array:
     return jnp.asarray(np.stack([forcing_history(int(seed)) for seed in seeds]))
 
 
-def _simulate_seed(q: jax.Array, forcing: jax.Array):
+def _factor_solve(cholesky_factor: jax.Array, right_hand_side: jax.Array):
+    intermediate = jax.scipy.linalg.solve_triangular(
+        cholesky_factor, right_hand_side, lower=True
+    )
+    return jax.scipy.linalg.solve_triangular(
+        cholesky_factor.T, intermediate, lower=False
+    )
+
+
+def _select_contact_regime(
+    free_contact_displacement,
+    slider_position,
+    contact_compliance,
+    friction_limit,
+):
+    identity = jnp.eye(2, dtype=jnp.float64)
+    force_tolerance = 1e-11 * (1.0 + friction_limit)
+    displacement_tolerance = force_tolerance / CONTACT_STIFFNESS
+
+    def candidate(regime):
+        sticking = regime == 0
+        matrix = identity + (
+            sticking[:, None] * CONTACT_STIFFNESS * contact_compliance
+        )
+        right_hand_side = jnp.where(
+            sticking,
+            -CONTACT_STIFFNESS
+            * (free_contact_displacement - slider_position),
+            -friction_limit * regime,
+        )
+        contact_force = jnp.linalg.solve(matrix, right_hand_side)
+        contact_displacement = (
+            free_contact_displacement + contact_compliance @ contact_force
+        )
+        relative_displacement = contact_displacement - slider_position
+        elastic_force = -CONTACT_STIFFNESS * relative_displacement
+        valid_contact = jnp.where(
+            sticking,
+            jnp.abs(elastic_force) <= friction_limit + force_tolerance,
+            regime * relative_displacement
+            >= friction_limit / CONTACT_STIFFNESS - displacement_tolerance,
+        )
+        return contact_force, contact_displacement, jnp.all(valid_contact)
+
+    forces, displacements, valid = jax.vmap(candidate)(CONTACT_REGIMES)
+    selected = jnp.argmax(valid.astype(jnp.int64))
+    any_valid = jnp.any(valid)
+    contact_force = jnp.where(
+        any_valid, forces[selected], jnp.full(2, jnp.nan)
+    )
+    contact_displacement = jnp.where(
+        any_valid, displacements[selected], jnp.full(2, jnp.nan)
+    )
+    regime = jnp.where(any_valid, CONTACT_REGIMES[selected], jnp.ones(2))
+    return contact_force, contact_displacement, regime
+
+
+def _simulate_batch_impl(q: jax.Array, forcing: jax.Array):
     damping, preload = q
     dt = SYSTEM.time_step
     mass = SYSTEM.mass
     stiffness = SYSTEM.stiffness
     load = SYSTEM.load
     observation = SYSTEM.observation
+    contacts = SYSTEM.contacts
     friction_limit = FRICTION_COEFFICIENT * preload
 
     effective_matrix = stiffness + mass / dt**2 + damping * mass / dt
-    stick_matrix = effective_matrix + CONTACT_STIFFNESS * jnp.outer(
-        load, observation
-    )
+    cholesky_factor = jnp.linalg.cholesky(effective_matrix)
+    contact_response = _factor_solve(cholesky_factor, contacts)
+    contact_compliance = contacts.T @ contact_response
     zero_displacement = jnp.zeros(stiffness.shape[0], dtype=jnp.float64)
-    initial_state = (
-        zero_displacement,
-        zero_displacement,
-        jnp.array(0.0, dtype=jnp.float64),
-        jnp.array(False),
-    )
 
-    def step(state, external_force):
-        previous, previous_previous, slider_position, was_slipping = state
-        history = (
-            mass @ (2.0 * previous - previous_previous) / dt**2
-            + damping * mass @ previous / dt
+    def simulate_seed(seed_forcing):
+        initial_state = (
+            zero_displacement,
+            zero_displacement,
+            jnp.zeros(2, dtype=jnp.float64),
+            jnp.zeros(2, dtype=jnp.bool_),
         )
 
-        stick_solution = jnp.linalg.solve(
-            stick_matrix,
-            history
-            + load
-            * (external_force + CONTACT_STIFFNESS * slider_position),
-        )
-        stick_displacement = observation @ stick_solution
-        required_friction = -CONTACT_STIFFNESS * (
-            stick_displacement - slider_position
-        )
-        is_sticking = jnp.abs(required_friction) <= friction_limit
+        def step(state, external_force):
+            previous, previous_previous, slider_position, was_slipping = state
+            history = (
+                mass @ (2.0 * previous - previous_previous) / dt**2
+                + damping * mass @ previous / dt
+            )
+            free_solution = _factor_solve(
+                cholesky_factor, history + load * external_force
+            )
+            free_contact_displacement = contacts.T @ free_solution
+            contact_force, contact_displacement, regime = (
+                _select_contact_regime(
+                    free_contact_displacement,
+                    slider_position,
+                    contact_compliance,
+                    friction_limit,
+                )
+            )
+            displacement_vector = free_solution + contact_response @ contact_force
+            displacement = observation @ displacement_vector
+            previous_displacement = observation @ previous
+            velocity = (displacement - previous_displacement) / dt
+            is_slipping = regime != 0
+            next_slider_position = jnp.where(
+                is_slipping,
+                contact_displacement + contact_force / CONTACT_STIFFNESS,
+                slider_position,
+            )
+            stick_to_slip = jnp.logical_and(
+                jnp.logical_not(was_slipping), is_slipping
+            )
+            slip_to_stick = jnp.logical_and(
+                was_slipping, jnp.logical_not(is_slipping)
+            )
+            next_state = (
+                displacement_vector,
+                previous,
+                next_slider_position,
+                is_slipping,
+            )
+            output = (
+                displacement,
+                velocity,
+                is_slipping,
+                stick_to_slip,
+                slip_to_stick,
+            )
+            return next_state, output
 
-        slip_direction = jnp.sign(stick_displacement - slider_position)
-        slip_direction = jnp.where(slip_direction == 0.0, 1.0, slip_direction)
-        slip_friction = -friction_limit * slip_direction
-        slip_solution = jnp.linalg.solve(
-            effective_matrix,
-            history + load * (external_force + slip_friction),
-        )
+        _, outputs = jax.lax.scan(step, initial_state, seed_forcing)
+        return outputs
 
-        displacement_vector = jnp.where(
-            is_sticking, stick_solution, slip_solution
-        )
-        displacement = observation @ displacement_vector
-        previous_displacement = observation @ previous
-        velocity = (displacement - previous_displacement) / dt
-        is_slipping = jnp.logical_not(is_sticking)
-        friction = jnp.where(is_sticking, required_friction, slip_friction)
-        next_slider_position = jnp.where(
-            is_sticking,
-            slider_position,
-            displacement + friction / CONTACT_STIFFNESS,
-        )
-        stick_to_slip = jnp.logical_and(
-            jnp.logical_not(was_slipping), is_slipping
-        )
-        slip_to_stick = jnp.logical_and(
-            was_slipping, jnp.logical_not(is_slipping)
-        )
-
-        next_state = (
-            displacement_vector,
-            previous,
-            next_slider_position,
-            is_slipping,
-        )
-        output = (
-            displacement,
-            velocity,
-            is_slipping,
-            stick_to_slip,
-            slip_to_stick,
-        )
-        return next_state, output
-
-    _, outputs = jax.lax.scan(step, initial_state, forcing)
-    return outputs
+    return jax.vmap(simulate_seed)(forcing)
 
 
-_simulate_batch = jax.jit(jax.vmap(_simulate_seed, in_axes=(None, 0)))
+_simulate_batch = jax.jit(_simulate_batch_impl)
 
 
 def evaluate_batch(q: np.ndarray | jax.Array, seeds: np.ndarray) -> BatchResult:
-    """Evaluate the hard forward response for a fixed seed batch."""
+    """Evaluate the hard two-contact response for a fixed seed batch."""
     displacement, velocity, slip, stick_to_slip, slip_to_stick = (
         _simulate_batch(jnp.asarray(q, dtype=jnp.float64), forcing_batch(seeds))
     )
@@ -317,17 +408,26 @@ def evaluate_batch(q: np.ndarray | jax.Array, seeds: np.ndarray) -> BatchResult:
     )
 
 
-def calibrate_baseline(seeds: np.ndarray = TRAINING_SEEDS) -> np.ndarray:
-    """Choose one preload from a single friction-free reference response."""
-    reference = evaluate_batch(
-        np.array([BASELINE_DAMPING, 0.0], dtype=np.float64), seeds
-    )
-    trial_force = CONTACT_STIFFNESS * np.abs(
-        np.asarray(reference.displacement)
-    )
-    preload = float(np.quantile(trial_force, PRELOAD_QUANTILE))
-    preload /= FRICTION_COEFFICIENT
-    return np.array([BASELINE_DAMPING, preload], dtype=np.float64)
+def switching_gate(result: BatchResult) -> bool:
+    """Return whether the bounded H1.5 two-contact switching gate passes."""
+    stick_to_slip = np.asarray(result.stick_to_slip)
+    slip_to_stick = np.asarray(result.slip_to_stick)
+    complete_cycles = np.logical_and(stick_to_slip > 0, slip_to_stick > 0)
+    switching_seeds = np.any(complete_cycles, axis=1)
+    locations_switch = np.any(complete_cycles, axis=0)
+    return bool(np.count_nonzero(switching_seeds) >= 4 and np.all(locations_switch))
+
+
+def select_baseline(
+    seeds: np.ndarray = TRAINING_SEEDS,
+) -> tuple[np.ndarray | None, BatchResult | None]:
+    """Select the first preload in the fixed, bounded H1.5 candidate order."""
+    for preload in BASELINE_PRELOADS:
+        q = np.array([BASELINE_DAMPING, preload], dtype=np.float64)
+        result = evaluate_batch(q, seeds)
+        if switching_gate(result):
+            return q, result
+    return None, None
 
 
 def crn_fd_jacobian(
