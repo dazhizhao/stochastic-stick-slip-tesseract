@@ -46,6 +46,14 @@ logs/
 tmp/
 temp/
 
+# Public Stage H1.5 result figures
+!outputs/
+outputs/*
+!outputs/stage_h15/
+outputs/stage_h15/*
+!outputs/stage_h15/mesh_and_two_contact_response.png
+!outputs/stage_h15/objective_history.png
+
 # Model / checkpoint files
 *.ckpt
 *.pth

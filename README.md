@@ -16,7 +16,7 @@ q = (c, N)
 ```bash
 uv sync
 uv run pytest -q
-uv run python -m scripts.run_stage_h15
+uv run python scripts/run_stage_h15.py
 ```
 
 No Docker image, PETSc solve, server, or background job is used by Stage H1.5.
@@ -34,8 +34,14 @@ The native Mac run passed:
 - five accepted hard-forward steps reached `q5 = (0.2005889997, 0.0337787434)` and `J(q5) = 6.343376252e-3`, a 4.5074% total reduction;
 - warm Mac timings were approximately 0.009 s for one seed, 0.017 s for the 8-seed objective, and 0.068 s for the nominal 2D CRN gradient.
 
+Representative results:
+
+![Mesh, two contact locations, and representative response](outputs/stage_h15/mesh_and_two_contact_response.png)
+
+![Five-step objective history](outputs/stage_h15/objective_history.png)
+
 Plots are generated only after all H1.5 gates pass and are written to `outputs/stage_h15/`.
 
 ## License
 
-This repository is licensed under Apache-2.0. JAX-FEM is an external GPL-3.0 dependency and is not relicensed by this repository.
+This repository is licensed under Apache-2.0. JAX-FEM is used as an external dependency and is distributed under GPL-3.0; it is not relicensed by this repository.

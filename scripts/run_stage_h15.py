@@ -1,7 +1,12 @@
 """Run the complete local Stage H1.5 validation and bounded descent."""
 
 from pathlib import Path
+import sys
 import time
+
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 import jax
 
@@ -26,7 +31,6 @@ from stochastic_stick_slip.model import (
 )
 
 
-ROOT = Path(__file__).resolve().parents[1]
 PHYSICS_API = ROOT / "tesseracts/stick_slip_fem/tesseract_api.py"
 OBJECTIVE_API = ROOT / "tesseracts/stochastic_objective/tesseract_api.py"
 OUTPUT_DIRECTORY = ROOT / "outputs/stage_h15"
