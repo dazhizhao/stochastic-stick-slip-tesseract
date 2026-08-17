@@ -1,0 +1,108 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Python tooling / caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+.tox/
+.nox/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# JAX / ML caches
+.jax_cache/
+*.xla_cache/
+wandb/
+runs/
+tensorboard/
+lightning_logs/
+
+# Local outputs / results
+outputs/
+results/
+artifacts/
+checkpoints/
+logs/
+tmp/
+temp/
+
+# Model / checkpoint files
+*.ckpt
+*.pth
+*.pt
+*.onnx
+
+# Data generated locally
+data/generated/
+data/cache/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# Linux
+*~
+
+# Logs
+*.log
+
+# Profiling
+*.prof
+*.lprof
+profile_output/
+
+# C/C++ build artifacts
+*.o
+*.obj
+*.a
+*.lib
+*.dll
+*.dylib
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+Makefile
+compile_commands.json
+
+# Tesseract / Docker local files if generated
+.tesseract/
+docker-compose.override.yml

@@ -1,0 +1,26 @@
+[project]
+name = "stochastic-stick-slip"
+version = "0.1.0"
+description = "Local environment for the stochastic stick-slip vibration suppression demo."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "jax>=0.11.0",
+    "jax-fem>=0.0.12",
+    "matplotlib>=3.11.1",
+    "numpy>=2.5.2",
+    "pyfiglet>=1.0.4",
+    "scipy>=1.18.0",
+    "tesseract-core>=1.11.0",
+    "tesseract-jax>=0.4.1",
+    "tesseract-torch>=0.1.0",
+    "torch>=2.13.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
