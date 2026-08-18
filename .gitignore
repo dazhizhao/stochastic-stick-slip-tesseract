@@ -60,6 +60,12 @@ outputs/stage_h2/*
 !outputs/stage_h2/fourier_controlled_response.png
 !outputs/stage_h2/training_objective.png
 
+# Public Stage H3 result figures
+!outputs/stage_h3/
+outputs/stage_h3/*
+!outputs/stage_h3/per_seed_generalization.png
+!outputs/stage_h3/train_test_objectives.png
+
 # Model / checkpoint files
 *.ckpt
 *.pth

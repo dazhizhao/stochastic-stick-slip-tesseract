@@ -75,6 +75,46 @@ or finite difference over network weights is used.
 
 ## Results
 
+### Stage H3 — ablation and 32-seed generalization
+
+H3 compares the fixed preload against a single shared Fourier waveform and the
+seed-conditioned MLP, with all physics and training settings frozen from H2.
+Both trainable controllers use Adam at `lr=0.01` for exactly 20 steps.
+
+| controller | 8-seed training objective | change vs fixed | 32-seed test objective | change vs fixed |
+| --- | ---: | ---: | ---: | ---: |
+| Fixed | `0.006642794744366401` | — | `0.006457748776761722` | — |
+| Shared Fourier | `0.006336030858525896` | `-4.6180%` | `0.006305103508254330` | `-2.3638%` |
+| MLP Fourier | `0.005769207113962147` | `-13.1509%` | `0.006469585300535207` | `+0.1833%` |
+
+The shared controller improved 27 of 32 unseen seeds, while the MLP improved
+16 of 32 and beat the shared controller on 14. The MLP therefore has clear
+extra fitting capacity on the eight training seeds, but that advantage did not
+generalize in this fixed experiment. No held-out result was used to retrain or
+tune either controller.
+
+![Per-seed generalization relative to the fixed preload](./outputs/stage_h3/per_seed_generalization.png)
+
+![Training and 32-seed test objectives](./outputs/stage_h3/train_test_objectives.png)
+
+#### Why a neural controller?
+
+The forcing-conditioned MLP can produce a different waveform for each seed and
+reduces the training objective by a further `8.9460%` relative to one shared
+waveform. H3 also supplies the necessary negative evidence: with only eight
+training seeds, that extra flexibility did not improve the aggregate 32-seed
+test objective. The network is useful adaptive capacity, not an automatic
+generalization guarantee.
+
+#### Why low-dimensional Fourier control?
+
+The MLP has 469 parameters, so a direct centered finite difference over its
+weights would require 938 perturbed evaluations. The five-column Fourier
+interface needs only 10 batch forwards, after which the Tesseract VJP carries
+the result back through PyTorch. Across five fixed gradient repeats, the mean
+cosine to the CRN mean direction was `0.976504`, compared with `0.209988` when
+the positive and negative perturbations used independent seeds.
+
 ### Stage H2 — PyTorch Fourier controller
 
 The native Mac CPU/Float64 run passed.
@@ -124,13 +164,14 @@ uv sync
 uv run pytest -q
 uv run python scripts/run_stage_h15.py
 uv run python scripts/run_stage_h2.py
+uv run python scripts/run_stage_h3.py
 ```
 
-The test suite currently reports 12 passing tests. Re-running the H2 runner
-with the fixed Torch seed reproduces the same objective history, coefficients,
-accepted learning rate and PASS result. The runs are intentionally local:
-there is no Docker image, GPU, server, PETSc solve, background job or push-time
-automation required.
+The test suite currently reports 16 passing tests. Two complete H3 runs with
+the same Torch and forcing seeds produced identical objectives, controller
+coefficients, per-seed comparisons and gradient diagnostics. The runs are
+intentionally local: there is no Docker image, GPU, server, PETSc solve,
+background job or push-time automation required.
 
 ## Repository layout
 
@@ -142,9 +183,11 @@ tesseracts/stochastic_objective/tesseract_api.py
                                                 mean objective apply/JVP/VJP
 scripts/run_stage_h15.py                       H1.5 baseline runner
 scripts/run_stage_h2.py                        H2 training and diagnostics
+scripts/run_stage_h3.py                        H3 ablation and generalization
 tests/                                          focused physics and composition tests
 outputs/stage_h15/                              H1.5 figures
 outputs/stage_h2/                               H2 figures
+outputs/stage_h3/                               H3 figures
 ```
 
 ## License
