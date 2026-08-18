@@ -14,40 +14,36 @@ mechanics boundary.
 ## Pipeline
 
 ```text
-forcing parameters (8 fixed seeds)
-        │
-        ▼
-6 forcing descriptors per seed
-        │  PyTorch autograd
-        ▼
-MLP: 6 → 16 → 16 → 5
-        │
-        ▼
-Fourier coefficients z ∈ R^(8×5)
-        │  only this low-dimensional interface is FD'd
-        ▼
-┌──────────────────────────────────────────────────────────────┐
-│ stick_slip_fem Tesseract                                     │
-│ forward: JAX-FEM + dense dynamics + two hard Jenkins contacts │
-│ JVP/VJP: block-diagonal CRN-centered FD in z                  │
-└──────────────────────────────────────────────────────────────┘
-        │
-        ▼
-seed_losses ∈ R^8
-        │
-        ▼
-┌──────────────────────────────────────────────┐
-│ stochastic_objective Tesseract               │
-│ forward: mean(seed_losses)                   │
-│ JVP: mean tangent; VJP: cotangent / 8         │
-└──────────────────────────────────────────────┘
-        │
-        ▼
-scalar stochastic objective J
-        │  loss.backward()
-        ▼
-gradients of all PyTorch MLP parameters
+trainable theta [469]       forcing descriptors [8,6]
+          │                           │
+          └─────────────┬─────────────┘
+                        ▼
+┌────────────────────────────────────────────────────┐
+│ fourier_controller Tesseract                       │
+│ PyTorch MLP: 6 → 16 → 16 → 5                      │
+│ gradient: PyTorch autograd VJP with respect to theta│
+└───────────────────────┬────────────────────────────┘
+                        │ Fourier coefficients [8,5]
+                        ▼
+┌────────────────────────────────────────────────────┐
+│ stick_slip_fem Tesseract                           │
+│ JAX/JAX-FEM + two hard Jenkins contacts            │
+│ gradient: CRN-centered finite-difference VJP        │
+└───────────────────────┬────────────────────────────┘
+                        │ seed losses [8]
+                        ▼
+                 torch.mean(seed losses)
+                        │
+                        ▼
+                   loss.backward()
+                        │
+                        ▼
+                 gradient of theta [469]
 ```
+
+The controller and mechanics are the two core Tesseracts. The older
+`stochastic_objective` mean component remains available for H1–H4 compatibility,
+but the main pipeline now computes the mean directly in host PyTorch.
 
 For H2, the physics Tesseract receives fixed `q=(c,N_base)=(0.2,0.04)` and
 the MLP produces
@@ -71,9 +67,31 @@ or finite difference over network weights is used.
 - two independent hard Jenkins contacts on the lower surface;
 - exact STICK/SLIP regime projection and slider updates;
 - the existing 800-step integration, stochastic forcing and displacement-only loss;
-- eight fixed training seeds and one disjoint eight-seed held-out set.
+- 32 fixed training seeds and one disjoint 64-seed held-out set.
 
 ## Results
+
+### Stage H5 — two core Tesseracts
+
+H5 moves the unchanged PyTorch controller behind a real Tesseract boundary.
+The flat 469-parameter vector is differentiated by PyTorch autograd inside the
+controller component; only five Fourier coefficients per seed cross into the
+hard stochastic mechanics component, where the existing CRN finite difference
+provides the VJP.
+
+| quantity | result |
+| --- | ---: |
+| controller forward maximum absolute error | `0` |
+| controller VJP maximum absolute error | `0` |
+| controller VJP direction cosine | `1` |
+| end-to-end theta gradient norm | `0.001616181727698509` |
+| H5 32-seed training objective | `0.006108705858227541` |
+| H5 64-seed test objective | `0.005971312227273379` |
+| train/test delta from H4 | `0 / 0` |
+
+The complete `theta → controller Tesseract → physics Tesseract → mean →
+backward` chain reproduces H4 exactly while keeping finite differences away
+from all 469 MLP parameters.
 
 ### Stage H4 — more stochastic training coverage
 
@@ -192,9 +210,10 @@ uv run python scripts/run_stage_h15.py
 uv run python scripts/run_stage_h2.py
 uv run python scripts/run_stage_h3.py
 uv run python scripts/run_stage_h4.py
+uv run python scripts/run_stage_h5.py
 ```
 
-The test suite currently reports 18 passing tests. Two complete H3 runs with
+The test suite currently reports 22 passing tests. Two complete H3 runs with
 the same Torch and forcing seeds produced identical objectives, controller
 coefficients, per-seed comparisons and gradient diagnostics. The runs are
 intentionally local: there is no Docker image, GPU, server, PETSc solve,
@@ -205,13 +224,15 @@ background job or push-time automation required.
 ```text
 stochastic_stick_slip/model.py                 JAX-FEM, forcing and hard contact
 stochastic_stick_slip/controller.py            deterministic PyTorch MLP
+tesseracts/fourier_controller/tesseract_api.py PyTorch controller apply/VJP
 tesseracts/stick_slip_fem/tesseract_api.py    physics apply/JVP/VJP
 tesseracts/stochastic_objective/tesseract_api.py
-                                                mean objective apply/JVP/VJP
+                                                legacy mean apply/JVP/VJP
 scripts/run_stage_h15.py                       H1.5 baseline runner
 scripts/run_stage_h2.py                        H2 training and diagnostics
 scripts/run_stage_h3.py                        H3 ablation and generalization
 scripts/run_stage_h4.py                        H4 stochastic training coverage
+scripts/run_stage_h5.py                        H5 two-Tesseract regression
 tests/                                          focused physics and composition tests
 outputs/stage_h15/                              H1.5 figures
 outputs/stage_h2/                               H2 figures

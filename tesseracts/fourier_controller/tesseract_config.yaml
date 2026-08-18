@@ -1,0 +1,3 @@
+name: fourier_controller
+version: 0.1.0
+description: Fixed PyTorch MLP mapping forcing descriptors to Fourier controls.
