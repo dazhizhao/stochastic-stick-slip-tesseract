@@ -75,6 +75,32 @@ or finite difference over network weights is used.
 
 ## Results
 
+### Stage H4 — more stochastic training coverage
+
+H4 changes only the stochastic training coverage: the original eight seeds are
+augmented with seeds `201..224`, giving 32 training seeds. The physics,
+controller architecture, initialization, optimizer and 20-step budget remain
+unchanged. Evaluation uses 64 new seeds, `1001..1064`, exactly once after
+training.
+
+| controller | 32-seed training objective | improvement vs fixed | 64-seed test objective | improvement vs fixed |
+| --- | ---: | ---: | ---: | ---: |
+| Fixed | `0.006504099115381487` | — | `0.006348314853437941` | — |
+| Shared Fourier | `0.006288536550850767` | `3.3143%` | `0.006147424838351543` | `3.1645%` |
+| MLP Fourier | `0.006108705858227541` | `6.0791%` | `0.005971312227273379` | `5.9386%` |
+
+This is **Case A / STRONG PASS**. The MLP test objective is `2.8648%` lower
+than the retrained Shared controller. On the 64 held-out seeds, Shared beats
+Fixed on 58, MLP beats Fixed on 62, and MLP beats Shared on 52. The MLP
+train–test improvement gap is only `0.1405` percentage points, compared with
+about `13.33` percentage points in H3. Increasing stochastic training coverage
+therefore resolves the observed H3 generalization gap without changing the
+network or mechanics.
+
+![H4 per-seed generalization](./outputs/stage_h4/per_seed_generalization.png)
+
+![H4 full-batch training histories](./outputs/stage_h4/training_objective_history.png)
+
 ### Stage H3 — ablation and 32-seed generalization
 
 H3 compares the fixed preload against a single shared Fourier waveform and the
@@ -165,9 +191,10 @@ uv run pytest -q
 uv run python scripts/run_stage_h15.py
 uv run python scripts/run_stage_h2.py
 uv run python scripts/run_stage_h3.py
+uv run python scripts/run_stage_h4.py
 ```
 
-The test suite currently reports 16 passing tests. Two complete H3 runs with
+The test suite currently reports 18 passing tests. Two complete H3 runs with
 the same Torch and forcing seeds produced identical objectives, controller
 coefficients, per-seed comparisons and gradient diagnostics. The runs are
 intentionally local: there is no Docker image, GPU, server, PETSc solve,
@@ -184,10 +211,12 @@ tesseracts/stochastic_objective/tesseract_api.py
 scripts/run_stage_h15.py                       H1.5 baseline runner
 scripts/run_stage_h2.py                        H2 training and diagnostics
 scripts/run_stage_h3.py                        H3 ablation and generalization
+scripts/run_stage_h4.py                        H4 stochastic training coverage
 tests/                                          focused physics and composition tests
 outputs/stage_h15/                              H1.5 figures
 outputs/stage_h2/                               H2 figures
 outputs/stage_h3/                               H3 figures
+outputs/stage_h4/                               H4 figures
 ```
 
 ## License

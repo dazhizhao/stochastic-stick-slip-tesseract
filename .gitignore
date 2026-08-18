@@ -66,6 +66,12 @@ outputs/stage_h3/*
 !outputs/stage_h3/per_seed_generalization.png
 !outputs/stage_h3/train_test_objectives.png
 
+# Public Stage H4 result figures
+!outputs/stage_h4/
+outputs/stage_h4/*
+!outputs/stage_h4/per_seed_generalization.png
+!outputs/stage_h4/training_objective_history.png
+
 # Model / checkpoint files
 *.ckpt
 *.pth
