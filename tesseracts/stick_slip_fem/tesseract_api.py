@@ -1,5 +1,6 @@
 """Tesseract API for the stochastic hard stick-slip FEM response."""
 
+import os
 import numpy as np
 from pydantic import BaseModel
 from tesseract_core.runtime import (
@@ -10,12 +11,20 @@ from tesseract_core.runtime import (
     ShapeDType,
 )
 
-from stochastic_stick_slip.model import (
-    NUM_STEPS,
-    crn_fd_coefficient_jacobian,
-    crn_fd_controlled_q_jacobian,
-    evaluate_controlled_batch,
-)
+if os.environ.get("STICK_SLIP_FEM_VARIANT") == "showcase":
+    from stochastic_stick_slip.showcase import (
+        NUM_STEPS,
+        crn_fd_coefficient_jacobian,
+        crn_fd_controlled_q_jacobian,
+        evaluate_controlled_batch,
+    )
+else:
+    from stochastic_stick_slip.model import (
+        NUM_STEPS,
+        crn_fd_coefficient_jacobian,
+        crn_fd_controlled_q_jacobian,
+        evaluate_controlled_batch,
+    )
 
 
 class InputSchema(BaseModel):

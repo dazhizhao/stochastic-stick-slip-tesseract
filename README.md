@@ -11,6 +11,51 @@ PyTorch autograd handles the high-dimensional network parameters, while a
 common-random-number (CRN) finite difference handles the non-smooth stochastic
 mechanics boundary.
 
+![Fixed and trained deformation under identical visualization settings](./outputs/showcase/fixed_vs_mlp_deformation.gif)
+
+## Final showcase
+
+The final Hackathon run applies the unchanged H5 method to a `32×4 QUAD4`
+cantilever with 128 elements, 165 nodes and 320 free DOF. The two hard Jenkins
+contacts remain at `x=0.6875` and `x=0.9375`. Training uses 32 stochastic seeds,
+four fixed 8-seed Tesseract batches per update, and exactly 100 Adam iterations
+at `lr=0.01`. The reported model is iteration 100, not a selected best
+checkpoint.
+
+| quantity | result |
+| --- | ---: |
+| train objective, iteration 0 | `0.007660674831379117` |
+| train objective, iteration 100 | `0.006120562168107167` |
+| train reduction | `20.1041%` |
+| held-out Fixed objective, 64 seeds | `0.007484088872760848` |
+| held-out MLP objective, 64 seeds | `0.006697604744104673` |
+| held-out reduction | `10.5087%` |
+| held-out wins | `48 / 64` |
+| gradient norm, first / final update | `1.49593e-3 / 1.50872e-4` |
+| final preload range | `[0.0200000, 0.0600000]` |
+| 100-step training time | `426.91 s` on Mac CPU |
+
+The fixed 32-seed baseline produced `257/252` STICK→SLIP/SLIP→STICK
+transitions at contact A and `435/422` at contact B. After training, the
+64-seed held-out set produced `793/787` transitions at A and `1050/1035` at B,
+so the controller reduces vibration without removing the hard switching that
+motivates the mixed-gradient boundary.
+
+The representative visualization seed is `1018`, chosen automatically because
+its `15.0093%` improvement is closest to the 64-seed median of `15.1049%`.
+Fixed and trained frames use the same seed, physical time, camera, deformation
+scale and displacement color range.
+
+![Large 32x4 FEM setup](./outputs/showcase/large_fem_setup.png)
+
+![Objective over 100 fixed Adam iterations](./outputs/showcase/optimization_history.png)
+
+![Held-out improvement over 64 new seeds](./outputs/showcase/held_out_improvement.png)
+
+![Representative displacement and learned preload](./outputs/showcase/representative_response.png)
+
+![Controller evolution at six fixed checkpoints](./outputs/showcase/optimization_progress.gif)
+
 ## Pipeline
 
 ```text
@@ -61,9 +106,10 @@ and one negative forward for each column, using the same seed on both sides
 (10 batch forwards total for `[8,5]`). No FFT, dynamic top-K mode selection,
 or finite difference over network weights is used.
 
-## What is frozen
+## Validated baseline and showcase
 
-- 16×2 `QUAD4` cantilever, 32 elements, 102 total DOF and 96 free DOF;
+- H1–H5 baseline: 16×2 `QUAD4`, 32 elements and 96 free DOF;
+- final showcase: 32×4 `QUAD4`, 128 elements and 320 free DOF;
 - two independent hard Jenkins contacts on the lower surface;
 - exact STICK/SLIP regime projection and slider updates;
 - the existing 800-step integration, stochastic forcing and displacement-only loss;
@@ -211,9 +257,10 @@ uv run python scripts/run_stage_h2.py
 uv run python scripts/run_stage_h3.py
 uv run python scripts/run_stage_h4.py
 uv run python scripts/run_stage_h5.py
+uv run python scripts/run_showcase.py
 ```
 
-The test suite currently reports 22 passing tests. Two complete H3 runs with
+The test suite currently reports 23 passing tests. Two complete H3 runs with
 the same Torch and forcing seeds produced identical objectives, controller
 coefficients, per-seed comparisons and gradient diagnostics. The runs are
 intentionally local: there is no Docker image, GPU, server, PETSc solve,
@@ -233,11 +280,14 @@ scripts/run_stage_h2.py                        H2 training and diagnostics
 scripts/run_stage_h3.py                        H3 ablation and generalization
 scripts/run_stage_h4.py                        H4 stochastic training coverage
 scripts/run_stage_h5.py                        H5 two-Tesseract regression
+scripts/run_showcase.py                        32x4, 100-step final run and export
+scripts/render_showcase_paraview.py             reproducible ParaView rendering
 tests/                                          focused physics and composition tests
 outputs/stage_h15/                              H1.5 figures
 outputs/stage_h2/                               H2 figures
 outputs/stage_h3/                               H3 figures
 outputs/stage_h4/                               H4 figures
+outputs/showcase/                               final PNG and GIF media
 ```
 
 ## License

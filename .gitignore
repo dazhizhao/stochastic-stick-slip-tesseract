@@ -72,6 +72,16 @@ outputs/stage_h4/*
 !outputs/stage_h4/per_seed_generalization.png
 !outputs/stage_h4/training_objective_history.png
 
+# Public final-showcase media (raw trajectories and checkpoints stay local)
+!outputs/showcase/
+outputs/showcase/*
+!outputs/showcase/large_fem_setup.png
+!outputs/showcase/optimization_history.png
+!outputs/showcase/held_out_improvement.png
+!outputs/showcase/representative_response.png
+!outputs/showcase/fixed_vs_mlp_deformation.gif
+!outputs/showcase/optimization_progress.gif
+
 # Model / checkpoint files
 *.ckpt
 *.pth

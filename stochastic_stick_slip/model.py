@@ -115,6 +115,9 @@ class FEMSystem:
     points: np.ndarray
     cells: np.ndarray
     contact_coordinates: np.ndarray
+    fixed_dofs: np.ndarray
+    free_dofs: np.ndarray
+    contact_nodes: np.ndarray
     num_total_dofs: int
     num_free_dofs: int
 
@@ -122,6 +125,15 @@ class FEMSystem:
 @dataclass(frozen=True)
 class BatchResult:
     losses: jax.Array
+    displacement: jax.Array
+    velocity: jax.Array
+    slip: jax.Array
+    stick_to_slip: jax.Array
+    slip_to_stick: jax.Array
+
+
+@dataclass(frozen=True)
+class TrajectoryResult:
     displacement: jax.Array
     velocity: jax.Array
     slip: jax.Array
@@ -144,10 +156,14 @@ def _assemble_tangent(problem: Problem) -> np.ndarray:
     return np.asarray(jax.jacfwd(residual)(flat_zero))
 
 
-def _assemble_system() -> FEMSystem:
+def _assemble_system(
+    num_elements_x: int = NUM_ELEMENTS_X,
+    num_elements_y: int = NUM_ELEMENTS_Y,
+    contact_columns: tuple[int, int] = CONTACT_COLUMNS,
+) -> FEMSystem:
     meshio_mesh = rectangle_mesh(
-        Nx=NUM_ELEMENTS_X,
-        Ny=NUM_ELEMENTS_Y,
+        Nx=num_elements_x,
+        Ny=num_elements_y,
         domain_x=BEAM_LENGTH,
         domain_y=BEAM_HEIGHT,
     )
@@ -190,7 +206,9 @@ def _assemble_system() -> FEMSystem:
     observation_full = np.zeros(stiffness_full.shape[0])
     observation_full[2 * right_nodes + 1] = 1.0 / len(right_nodes)
 
-    contact_x = np.asarray(CONTACT_COLUMNS) * BEAM_LENGTH / NUM_ELEMENTS_X
+    contact_x = (
+        np.asarray(contact_columns) * BEAM_LENGTH / num_elements_x
+    )
     contact_nodes = []
     for x_coordinate in contact_x:
         matches = np.flatnonzero(
@@ -232,6 +250,9 @@ def _assemble_system() -> FEMSystem:
         points=points[:, :2],
         cells=np.asarray(cells),
         contact_coordinates=points[np.asarray(contact_nodes), :2],
+        fixed_dofs=fixed_dofs,
+        free_dofs=free_dofs,
+        contact_nodes=np.asarray(contact_nodes),
         num_total_dofs=stiffness_full.shape[0],
         num_free_dofs=len(free_dofs),
     )
@@ -248,21 +269,33 @@ def forcing_parameters(seed: int) -> tuple[np.ndarray, np.ndarray]:
     return amplitudes, phases
 
 
-def forcing_history(seed: int) -> np.ndarray:
+def forcing_history_for_system(seed: int, system: FEMSystem) -> np.ndarray:
     """Return the complete deterministic force history for one seed."""
     amplitudes, phases = forcing_parameters(seed)
-    times = np.asarray(SYSTEM.times)
+    times = np.asarray(system.times)
     return FORCING_AMPLITUDE * (
         amplitudes[0]
-        * np.sin(0.9 * SYSTEM.omega_1 * times + phases[0])
+        * np.sin(0.9 * system.omega_1 * times + phases[0])
         + 0.6
         * amplitudes[1]
-        * np.sin(1.35 * SYSTEM.omega_1 * times + phases[1])
+        * np.sin(1.35 * system.omega_1 * times + phases[1])
+    )
+
+
+def forcing_history(seed: int) -> np.ndarray:
+    return forcing_history_for_system(seed, SYSTEM)
+
+
+def forcing_batch_for_system(seeds: np.ndarray, system: FEMSystem) -> jax.Array:
+    return jnp.asarray(
+        np.stack(
+            [forcing_history_for_system(int(seed), system) for seed in seeds]
+        )
     )
 
 
 def forcing_batch(seeds: np.ndarray) -> jax.Array:
-    return jnp.asarray(np.stack([forcing_history(int(seed)) for seed in seeds]))
+    return forcing_batch_for_system(seeds, SYSTEM)
 
 
 def forcing_descriptor(seed: int) -> np.ndarray:
@@ -285,16 +318,30 @@ def forcing_descriptor_batch(seeds: np.ndarray) -> np.ndarray:
     return np.stack([forcing_descriptor(int(seed)) for seed in seeds])
 
 
-FOURIER_BASIS = jnp.stack(
-    (
-        jnp.ones(NUM_STEPS, dtype=jnp.float64),
-        jnp.cos(0.9 * SYSTEM.omega_1 * SYSTEM.times),
-        jnp.sin(0.9 * SYSTEM.omega_1 * SYSTEM.times),
-        jnp.cos(1.35 * SYSTEM.omega_1 * SYSTEM.times),
-        jnp.sin(1.35 * SYSTEM.omega_1 * SYSTEM.times),
-    ),
-    axis=1,
-)
+def build_fourier_basis(system: FEMSystem) -> jax.Array:
+    return jnp.stack(
+        (
+            jnp.ones(NUM_STEPS, dtype=jnp.float64),
+            jnp.cos(0.9 * system.omega_1 * system.times),
+            jnp.sin(0.9 * system.omega_1 * system.times),
+            jnp.cos(1.35 * system.omega_1 * system.times),
+            jnp.sin(1.35 * system.omega_1 * system.times),
+        ),
+        axis=1,
+    )
+
+
+FOURIER_BASIS = build_fourier_basis(SYSTEM)
+
+
+def preload_history_with_basis(
+    base_preload: float | jax.Array,
+    coefficients: np.ndarray | jax.Array,
+    fourier_basis: jax.Array,
+) -> jax.Array:
+    coefficients = jnp.asarray(coefficients, dtype=jnp.float64)
+    signal = coefficients @ fourier_basis.T
+    return base_preload + PRELOAD_MODULATION * jnp.tanh(signal)
 
 
 def preload_history(
@@ -302,9 +349,7 @@ def preload_history(
     coefficients: np.ndarray | jax.Array,
 ) -> jax.Array:
     """Map the five fixed Fourier coefficients to a bounded preload history."""
-    coefficients = jnp.asarray(coefficients, dtype=jnp.float64)
-    signal = coefficients @ FOURIER_BASIS.T
-    return base_preload + PRELOAD_MODULATION * jnp.tanh(signal)
+    return preload_history_with_basis(base_preload, coefficients, FOURIER_BASIS)
 
 
 def _factor_solve(cholesky_factor: jax.Array, right_hand_side: jax.Array):
@@ -364,27 +409,119 @@ def _select_contact_regime(
     return contact_force, contact_displacement, regime
 
 
-def _simulate_batch_impl(
-    q: jax.Array,
-    coefficients: jax.Array,
-    forcing: jax.Array,
-):
-    damping, base_preload = q
-    dt = SYSTEM.time_step
-    mass = SYSTEM.mass
-    stiffness = SYSTEM.stiffness
-    load = SYSTEM.load
-    observation = SYSTEM.observation
-    contacts = SYSTEM.contacts
-    preload = preload_history(base_preload, coefficients)
+def build_batch_simulator(system: FEMSystem, fourier_basis: jax.Array):
+    def simulate_batch_impl(
+        q: jax.Array,
+        coefficients: jax.Array,
+        forcing: jax.Array,
+    ):
+        damping, base_preload = q
+        dt = system.time_step
+        mass = system.mass
+        stiffness = system.stiffness
+        load = system.load
+        observation = system.observation
+        contacts = system.contacts
+        preload = preload_history_with_basis(
+            base_preload, coefficients, fourier_basis
+        )
 
-    effective_matrix = stiffness + mass / dt**2 + damping * mass / dt
-    cholesky_factor = jnp.linalg.cholesky(effective_matrix)
-    contact_response = _factor_solve(cholesky_factor, contacts)
-    contact_compliance = contacts.T @ contact_response
-    zero_displacement = jnp.zeros(stiffness.shape[0], dtype=jnp.float64)
+        effective_matrix = stiffness + mass / dt**2 + damping * mass / dt
+        cholesky_factor = jnp.linalg.cholesky(effective_matrix)
+        contact_response = _factor_solve(cholesky_factor, contacts)
+        contact_compliance = contacts.T @ contact_response
+        zero_displacement = jnp.zeros(stiffness.shape[0], dtype=jnp.float64)
 
-    def simulate_seed(seed_forcing, seed_preload):
+        def simulate_seed(seed_forcing, seed_preload):
+            initial_state = (
+                zero_displacement,
+                zero_displacement,
+                jnp.zeros(2, dtype=jnp.float64),
+                jnp.zeros(2, dtype=jnp.bool_),
+            )
+
+            def step(state, step_inputs):
+                external_force, current_preload = step_inputs
+                previous, previous_previous, slider_position, was_slipping = state
+                history = (
+                    mass @ (2.0 * previous - previous_previous) / dt**2
+                    + damping * mass @ previous / dt
+                )
+                free_solution = _factor_solve(
+                    cholesky_factor, history + load * external_force
+                )
+                free_contact_displacement = contacts.T @ free_solution
+                contact_force, contact_displacement, regime = (
+                    _select_contact_regime(
+                        free_contact_displacement,
+                        slider_position,
+                        contact_compliance,
+                        FRICTION_COEFFICIENT * current_preload,
+                    )
+                )
+                displacement_vector = (
+                    free_solution + contact_response @ contact_force
+                )
+                displacement = observation @ displacement_vector
+                previous_displacement = observation @ previous
+                velocity = (displacement - previous_displacement) / dt
+                is_slipping = regime != 0
+                next_slider_position = jnp.where(
+                    is_slipping,
+                    contact_displacement + contact_force / CONTACT_STIFFNESS,
+                    slider_position,
+                )
+                stick_to_slip = jnp.logical_and(
+                    jnp.logical_not(was_slipping), is_slipping
+                )
+                slip_to_stick = jnp.logical_and(
+                    was_slipping, jnp.logical_not(is_slipping)
+                )
+                next_state = (
+                    displacement_vector,
+                    previous,
+                    next_slider_position,
+                    is_slipping,
+                )
+                output = (
+                    displacement,
+                    velocity,
+                    is_slipping,
+                    stick_to_slip,
+                    slip_to_stick,
+                )
+                return next_state, output
+
+            _, outputs = jax.lax.scan(
+                step, initial_state, (seed_forcing, seed_preload)
+            )
+            return outputs
+
+        return jax.vmap(simulate_seed)(forcing, preload)
+
+    return jax.jit(simulate_batch_impl)
+
+
+_simulate_batch = build_batch_simulator(SYSTEM, FOURIER_BASIS)
+
+
+def build_trajectory_simulator(system: FEMSystem, fourier_basis: jax.Array):
+    def simulate_trajectory_impl(q, coefficients, seed_forcing):
+        damping, base_preload = q
+        dt = system.time_step
+        mass = system.mass
+        stiffness = system.stiffness
+        load = system.load
+        contacts = system.contacts
+        seed_preload = preload_history_with_basis(
+            base_preload, coefficients[None, :], fourier_basis
+        )[0]
+
+        effective_matrix = stiffness + mass / dt**2 + damping * mass / dt
+        cholesky_factor = jnp.linalg.cholesky(effective_matrix)
+        contact_response = _factor_solve(cholesky_factor, contacts)
+        contact_compliance = contacts.T @ contact_response
+        zero_displacement = jnp.zeros(stiffness.shape[0], dtype=jnp.float64)
         initial_state = (
             zero_displacement,
             zero_displacement,
@@ -403,18 +540,14 @@ def _simulate_batch_impl(
                 cholesky_factor, history + load * external_force
             )
             free_contact_displacement = contacts.T @ free_solution
-            contact_force, contact_displacement, regime = (
-                _select_contact_regime(
-                    free_contact_displacement,
-                    slider_position,
-                    contact_compliance,
-                    FRICTION_COEFFICIENT * current_preload,
-                )
+            contact_force, contact_displacement, regime = _select_contact_regime(
+                free_contact_displacement,
+                slider_position,
+                contact_compliance,
+                FRICTION_COEFFICIENT * current_preload,
             )
-            displacement_vector = free_solution + contact_response @ contact_force
-            displacement = observation @ displacement_vector
-            previous_displacement = observation @ previous
-            velocity = (displacement - previous_displacement) / dt
+            displacement = free_solution + contact_response @ contact_force
+            velocity = (displacement - previous) / dt
             is_slipping = regime != 0
             next_slider_position = jnp.where(
                 is_slipping,
@@ -428,7 +561,7 @@ def _simulate_batch_impl(
                 was_slipping, jnp.logical_not(is_slipping)
             )
             next_state = (
-                displacement_vector,
+                displacement,
                 previous,
                 next_slider_position,
                 is_slipping,
@@ -447,24 +580,23 @@ def _simulate_batch_impl(
         )
         return outputs
 
-    return jax.vmap(simulate_seed)(forcing, preload)
+    return jax.jit(simulate_trajectory_impl)
 
 
-_simulate_batch = jax.jit(_simulate_batch_impl)
+_simulate_trajectory = build_trajectory_simulator(SYSTEM, FOURIER_BASIS)
 
 
-def evaluate_controlled_batch(
+def evaluate_controlled_batch_for_system(
     q: np.ndarray | jax.Array,
     coefficients: np.ndarray | jax.Array,
     seeds: np.ndarray,
+    system: FEMSystem,
+    simulator,
 ) -> BatchResult:
-    """Evaluate the hard response with one Fourier control per seed."""
-    displacement, velocity, slip, stick_to_slip, slip_to_stick = (
-        _simulate_batch(
-            jnp.asarray(q, dtype=jnp.float64),
-            jnp.asarray(coefficients, dtype=jnp.float64),
-            forcing_batch(seeds),
-        )
+    displacement, velocity, slip, stick_to_slip, slip_to_stick = simulator(
+        jnp.asarray(q, dtype=jnp.float64),
+        jnp.asarray(coefficients, dtype=jnp.float64),
+        forcing_batch_for_system(seeds, system),
     )
     losses = jnp.mean(displacement**2, axis=1)
     return BatchResult(
@@ -474,6 +606,42 @@ def evaluate_controlled_batch(
         slip=slip,
         stick_to_slip=jnp.sum(stick_to_slip, axis=1),
         slip_to_stick=jnp.sum(slip_to_stick, axis=1),
+    )
+
+
+def evaluate_controlled_batch(
+    q: np.ndarray | jax.Array,
+    coefficients: np.ndarray | jax.Array,
+    seeds: np.ndarray,
+) -> BatchResult:
+    """Evaluate the hard response with one Fourier control per seed."""
+    return evaluate_controlled_batch_for_system(
+        q,
+        coefficients,
+        seeds,
+        SYSTEM,
+        _simulate_batch,
+    )
+
+
+def evaluate_trajectory_for_system(
+    q: np.ndarray | jax.Array,
+    coefficients: np.ndarray | jax.Array,
+    seed: int,
+    system: FEMSystem,
+    simulator,
+) -> TrajectoryResult:
+    outputs = simulator(
+        jnp.asarray(q, dtype=jnp.float64),
+        jnp.asarray(coefficients, dtype=jnp.float64),
+        jnp.asarray(forcing_history_for_system(seed, system)),
+    )
+    return TrajectoryResult(
+        displacement=outputs[0],
+        velocity=outputs[1],
+        slip=outputs[2],
+        stick_to_slip=jnp.sum(outputs[3], axis=0),
+        slip_to_stick=jnp.sum(outputs[4], axis=0),
     )
 
 
