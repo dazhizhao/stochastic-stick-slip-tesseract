@@ -11,50 +11,63 @@ PyTorch autograd handles the high-dimensional network parameters, while a
 common-random-number (CRN) finite difference handles the non-smooth stochastic
 mechanics boundary.
 
-![Fixed and trained deformation under identical visualization settings](./outputs/showcase/fixed_vs_mlp_deformation.gif)
+![Fixed and iteration-500 deformation under identical visualization settings](./outputs/showcase/fixed_vs_final_deformation.gif)
+
+![All 501 optimizer states from iteration 0 through 500](./outputs/showcase/optimization_all_iterations.gif)
 
 ## Final showcase
 
 The final Hackathon run applies the unchanged H5 method to a `32×4 QUAD4`
-cantilever with 128 elements, 165 nodes and 320 free DOF. The two hard Jenkins
-contacts remain at `x=0.6875` and `x=0.9375`. Training uses 32 stochastic seeds,
-four fixed 8-seed Tesseract batches per update, and exactly 100 Adam iterations
-at `lr=0.01`. The reported model is iteration 100, not a selected best
-checkpoint.
+cantilever with 128 elements, 165 nodes and 320 free DOF. Its 469-parameter MLP
+crosses the non-smooth mechanics boundary through only five Fourier
+coefficients per seed. Training uses 32 stochastic seeds, four fixed 8-seed
+Tesseract batches per update, and exactly 500 Adam iterations at `lr=0.01`.
+The reported model is iteration 500, not a selected best checkpoint; all 501
+controller states are retained in the local reproducible history.
 
 | quantity | result |
 | --- | ---: |
+| free structural DOF | `320` |
+| neural parameters / FD interface | `469 / 5` |
+| training / held-out seeds | `32 / 64` |
+| fixed Adam iterations | `500` |
 | train objective, iteration 0 | `0.007660674831379117` |
 | train objective, iteration 100 | `0.006120562168107167` |
-| train reduction | `20.1041%` |
+| train objective, iteration 500 | `0.005815166249899522` |
+| train reduction, iteration 500 | `24.0907%` |
 | held-out Fixed objective, 64 seeds | `0.007484088872760848` |
-| held-out MLP objective, 64 seeds | `0.006697604744104673` |
-| held-out reduction | `10.5087%` |
-| held-out wins | `48 / 64` |
-| gradient norm, first / final update | `1.49593e-3 / 1.50872e-4` |
+| held-out iteration-500 MLP objective | `0.006607333975056811` |
+| held-out reduction | `11.7149%` |
+| held-out wins | `49 / 64` |
+| gradient norm, first / final update | `1.49593e-3 / 3.87344e-5` |
 | final preload range | `[0.0200000, 0.0600000]` |
-| 100-step training time | `426.91 s` on Mac CPU |
+| 500-step training time | `2230.45 s` on Mac CPU |
+
+The training objective at iterations 200, 300 and 400 is respectively
+`0.005927553526808955`, `0.005872205536044466` and
+`0.005837709606220919`. The minimum is the reported iteration-500 value, so
+this run continued to improve after iteration 100 without checkpoint rollback.
 
 The fixed 32-seed baseline produced `257/252` STICK→SLIP/SLIP→STICK
 transitions at contact A and `435/422` at contact B. After training, the
-64-seed held-out set produced `793/787` transitions at A and `1050/1035` at B,
+64-seed held-out set produced `849/841` transitions at A and `1086/1067` at B,
 so the controller reduces vibration without removing the hard switching that
 motivates the mixed-gradient boundary.
 
-The representative visualization seed is `1018`, chosen automatically because
-its `15.0093%` improvement is closest to the 64-seed median of `15.1049%`.
-Fixed and trained frames use the same seed, physical time, camera, deformation
-scale and displacement color range.
+The representative visualization seed is `1040`, chosen automatically because
+its `15.7343%` improvement is closest to the 64-seed median of `16.0646%`.
+For this seed, contact A/B transition counts change from `11/11` and `15/15`
+STICK→SLIP/SLIP→STICK events under Fixed control to `15/15` and `15/15` at
+iteration 500. Fixed and trained frames use the same seed, physical time,
+deformation scale, coordinate limits and displacement color range.
 
 ![Large 32x4 FEM setup](./outputs/showcase/large_fem_setup.png)
 
-![Objective over 100 fixed Adam iterations](./outputs/showcase/optimization_history.png)
+![Objective over 500 fixed Adam iterations](./outputs/showcase/optimization_history_500.png)
 
 ![Held-out improvement over 64 new seeds](./outputs/showcase/held_out_improvement.png)
 
-![Representative displacement and learned preload](./outputs/showcase/representative_response.png)
-
-![Controller evolution at six fixed checkpoints](./outputs/showcase/optimization_progress.gif)
+![Representative displacement and iteration-500 preload](./outputs/showcase/representative_response.png)
 
 ## Pipeline
 
@@ -280,8 +293,8 @@ scripts/run_stage_h2.py                        H2 training and diagnostics
 scripts/run_stage_h3.py                        H3 ablation and generalization
 scripts/run_stage_h4.py                        H4 stochastic training coverage
 scripts/run_stage_h5.py                        H5 two-Tesseract regression
-scripts/run_showcase.py                        32x4, 100-step final run and export
-scripts/render_showcase_paraview.py             reproducible ParaView rendering
+scripts/run_showcase.py                        32x4, 500-step final run and media
+scripts/render_showcase_paraview.py             optional ParaView rendering
 tests/                                          focused physics and composition tests
 outputs/stage_h15/                              H1.5 figures
 outputs/stage_h2/                               H2 figures

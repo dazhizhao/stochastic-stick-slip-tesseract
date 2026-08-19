@@ -1,18 +1,14 @@
-"""Run the locked 32x4, 100-iteration final Hackathon showcase."""
+"""Run the locked 32x4, 500-iteration final Hackathon showcase."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-import csv
 import json
 import os
 from pathlib import Path
 import resource
-import subprocess
 import sys
 import time
-import xml.etree.ElementTree as ET
-
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -23,9 +19,8 @@ jax.config.update("jax_enable_x64", True)
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
-from matplotlib.animation import FuncAnimation, PillowWriter
-from matplotlib.collections import LineCollection
-import meshio
+from matplotlib.collections import LineCollection, PolyCollection
+from matplotlib.colors import Normalize
 import numpy as np
 from PIL import Image
 import torch
@@ -33,10 +28,7 @@ from tesseract_core import Tesseract
 from tesseract_torch import apply_tesseract
 
 from scripts.run_stage_h4 import H4_TEST_SEEDS, H4_TRAINING_SEEDS
-from stochastic_stick_slip.controller import (
-    build_controller,
-    flatten_controller_parameters,
-)
+from stochastic_stick_slip.controller import build_controller, flatten_controller_parameters
 from stochastic_stick_slip.model import forcing_descriptor_batch
 from stochastic_stick_slip.showcase import (
     NUM_ELEMENTS_X,
@@ -48,18 +40,14 @@ from stochastic_stick_slip.showcase import (
     preload_history,
 )
 
-
 CONTROLLER_API = ROOT / "tesseracts/fourier_controller/tesseract_api.py"
 PHYSICS_API = ROOT / "tesseracts/stick_slip_fem/tesseract_api.py"
 OUTPUT_DIRECTORY = ROOT / "outputs/showcase"
-CHECKPOINT_DIRECTORY = OUTPUT_DIRECTORY / "checkpoints"
-PARAVIEW_DIRECTORY = OUTPUT_DIRECTORY / "paraview"
-RENDER_DIRECTORY = OUTPUT_DIRECTORY / "rendered_frames"
 BASE_Q = np.array([0.2, 0.04], dtype=np.float64)
 LEARNING_RATE = 0.01
-MAX_ITERATIONS = 100
-CHECKPOINT_ITERATIONS = (0, 20, 40, 60, 80, 100)
-NUM_VISUALIZATION_FRAMES = 80
+MAX_ITERATIONS = 500
+MILESTONE_ITERATIONS = (0, 20, 100, 200, 300, 400, 500)
+NUM_PHYSICAL_FRAMES = 80
 
 FIXED_COLOR = "#5A6069"
 MLP_COLOR = "#2F6DA4"
@@ -79,6 +67,15 @@ class Evaluation:
     displacement_max: np.ndarray
     velocity_min: np.ndarray
     velocity_max: np.ndarray
+
+
+@dataclass(frozen=True)
+class TrainingHistory:
+    theta: np.ndarray
+    objective: np.ndarray
+    gradient: np.ndarray
+    n_min: np.ndarray
+    n_max: np.ndarray
 
 
 def _seed_batches(seeds):
@@ -107,10 +104,7 @@ def create_tesseracts():
 def _differentiable_batch_losses(controller, physics, theta, seeds):
     coefficients = apply_tesseract(
         controller,
-        {
-            "theta": theta,
-            "descriptors": forcing_descriptor_batch(seeds),
-        },
+        {"theta": theta, "descriptors": forcing_descriptor_batch(seeds)},
     )["coeffs"]
     return apply_tesseract(
         physics,
@@ -138,16 +132,10 @@ def _controller_coefficients(controller, theta, seeds):
 
 
 def evaluate(controller, physics, theta, seeds, fixed=False) -> Evaluation:
-    collected = {
-        "losses": [],
-        "coefficients": [],
-        "stick_to_slip": [],
-        "slip_to_stick": [],
-        "displacement_min": [],
-        "displacement_max": [],
-        "velocity_min": [],
-        "velocity_max": [],
-    }
+    collected = {name: [] for name in (
+        "losses", "coefficients", "stick_to_slip", "slip_to_stick",
+        "displacement_min", "displacement_max", "velocity_min", "velocity_max",
+    )}
     for batch_seeds in _seed_batches(seeds):
         coefficients = (
             np.zeros((8, 5), dtype=np.float64)
@@ -160,24 +148,11 @@ def evaluate(controller, physics, theta, seeds, fixed=False) -> Evaluation:
         collected["losses"].append(np.asarray(response["seed_losses"]))
         collected["coefficients"].append(coefficients)
         for name in (
-            "stick_to_slip",
-            "slip_to_stick",
-            "displacement_min",
-            "displacement_max",
-            "velocity_min",
-            "velocity_max",
+            "stick_to_slip", "slip_to_stick", "displacement_min",
+            "displacement_max", "velocity_min", "velocity_max",
         ):
             collected[name].append(np.asarray(response[name]))
-    return Evaluation(
-        losses=np.concatenate(collected["losses"]),
-        coefficients=np.concatenate(collected["coefficients"]),
-        stick_to_slip=np.concatenate(collected["stick_to_slip"]),
-        slip_to_stick=np.concatenate(collected["slip_to_stick"]),
-        displacement_min=np.concatenate(collected["displacement_min"]),
-        displacement_max=np.concatenate(collected["displacement_max"]),
-        velocity_min=np.concatenate(collected["velocity_min"]),
-        velocity_max=np.concatenate(collected["velocity_max"]),
-    )
+    return Evaluation(**{name: np.concatenate(values) for name, values in collected.items()})
 
 
 def _switching_gate(evaluation: Evaluation) -> bool:
@@ -202,7 +177,6 @@ def preflight(controller, physics):
         controller, physics, np.asarray(_initial_theta()), H4_TRAINING_SEEDS, True
     )
     fixed_seconds = time.perf_counter() - fixed_start
-
     theta = torch.nn.Parameter(_initial_theta())
     backward_start = time.perf_counter()
     loss = full_training_loss(controller, physics, theta)
@@ -228,27 +202,31 @@ def preflight(controller, physics):
     }
 
 
-def _save_checkpoint(theta, iteration):
-    np.save(
-        CHECKPOINT_DIRECTORY / f"theta_iter_{iteration:03d}.npy",
-        np.asarray(theta, dtype=np.float64),
-        allow_pickle=False,
+def _save_training_history(history: TrainingHistory):
+    path = OUTPUT_DIRECTORY / "training_history.npz"
+    np.savez(
+        path,
+        theta_history=history.theta,
+        objective_history=history.objective,
+        gradient_history=history.gradient,
+        n_min_history=history.n_min,
+        n_max_history=history.n_max,
     )
+    return path
 
 
 def train(controller, physics, initial_objective):
     theta = torch.nn.Parameter(_initial_theta())
     optimizer = torch.optim.Adam([theta], lr=LEARNING_RATE)
-    history = [
-        {
-            "iteration": 0,
-            "objective": initial_objective,
-            "gradient_norm": np.nan,
-            "N_min": BASE_Q[1],
-            "N_max": BASE_Q[1],
-        }
-    ]
-    _save_checkpoint(theta.detach().cpu().numpy(), 0)
+    theta_history = np.empty((MAX_ITERATIONS + 1, 469), dtype=np.float64)
+    objective_history = np.empty(MAX_ITERATIONS + 1, dtype=np.float64)
+    gradient_history = np.empty(MAX_ITERATIONS, dtype=np.float64)
+    n_min_history = np.empty(MAX_ITERATIONS + 1, dtype=np.float64)
+    n_max_history = np.empty(MAX_ITERATIONS + 1, dtype=np.float64)
+    theta_history[0] = theta.detach().cpu().numpy()
+    objective_history[0] = initial_objective
+    n_min_history[0] = BASE_Q[1]
+    n_max_history[0] = BASE_Q[1]
 
     start = time.perf_counter()
     for iteration in range(1, MAX_ITERATIONS + 1):
@@ -257,46 +235,29 @@ def train(controller, physics, initial_objective):
         loss.backward()
         gradient_norm = float(torch.linalg.vector_norm(theta.grad))
         optimizer.step()
-
-        hard = evaluate(
-            controller,
-            physics,
-            theta.detach().cpu().numpy(),
-            H4_TRAINING_SEEDS,
-        )
+        theta_array = theta.detach().cpu().numpy()
+        hard = evaluate(controller, physics, theta_array, H4_TRAINING_SEEDS)
         objective = float(np.mean(hard.losses))
         preload_min, preload_max = _control_range(hard.coefficients)
-        history.append(
-            {
-                "iteration": iteration,
-                "objective": objective,
-                "gradient_norm": gradient_norm,
-                "N_min": preload_min,
-                "N_max": preload_max,
-            }
-        )
-        if iteration in CHECKPOINT_ITERATIONS:
-            _save_checkpoint(theta.detach().cpu().numpy(), iteration)
+        theta_history[iteration] = theta_array
+        objective_history[iteration] = objective
+        gradient_history[iteration - 1] = gradient_norm
+        n_min_history[iteration] = preload_min
+        n_max_history[iteration] = preload_max
         print(
             f"iteration={iteration:03d} objective={objective:.16g} "
             f"gradient_norm={gradient_norm:.9g} "
             f"N=[{preload_min:.7f},{preload_max:.7f}]",
             flush=True,
         )
-    return (
-        theta.detach().cpu().numpy(),
-        history,
-        time.perf_counter() - start,
+    history = TrainingHistory(
+        theta=theta_history,
+        objective=objective_history,
+        gradient=gradient_history,
+        n_min=n_min_history,
+        n_max=n_max_history,
     )
-
-
-def write_history(history):
-    path = OUTPUT_DIRECTORY / "training_history.csv"
-    with path.open("w", newline="") as stream:
-        writer = csv.DictWriter(stream, fieldnames=history[0].keys())
-        writer.writeheader()
-        writer.writerows(history)
-    return path
+    return history, time.perf_counter() - start, _save_training_history(history)
 
 
 def _trajectory_arrays(result):
@@ -313,88 +274,6 @@ def _trajectory_arrays(result):
     }
 
 
-def _write_pvd(path, frame_paths, times):
-    root = ET.Element(
-        "VTKFile",
-        type="Collection",
-        version="0.1",
-        byte_order="LittleEndian",
-    )
-    collection = ET.SubElement(root, "Collection")
-    for frame_path, time_value in zip(frame_paths, times):
-        ET.SubElement(
-            collection,
-            "DataSet",
-            timestep=f"{time_value:.16g}",
-            group="",
-            part="0",
-            file=frame_path.name,
-        )
-    tree = ET.ElementTree(root)
-    ET.indent(tree, space="  ")
-    tree.write(path, encoding="utf-8", xml_declaration=True)
-
-
-def export_series(label, trajectory, frame_indices):
-    directory = PARAVIEW_DIRECTORY / label
-    directory.mkdir(parents=True, exist_ok=True)
-    points = np.column_stack((SYSTEM.points, np.zeros(len(SYSTEM.points))))
-    times = np.asarray(SYSTEM.times)[frame_indices]
-    frame_paths = []
-    for frame, step in enumerate(frame_indices):
-        displacement = np.column_stack(
-            (trajectory["displacement"][step], np.zeros(len(SYSTEM.points)))
-        )
-        velocity = np.column_stack(
-            (trajectory["velocity"][step], np.zeros(len(SYSTEM.points)))
-        )
-        contact_state = np.full(len(SYSTEM.points), -1, dtype=np.int64)
-        contact_state[SYSTEM.contact_nodes] = trajectory["slip"][step]
-        is_contact = np.zeros(len(SYSTEM.points), dtype=np.int64)
-        is_contact[SYSTEM.contact_nodes] = 1
-        mesh = meshio.Mesh(
-            points=points,
-            cells=[("quad", SYSTEM.cells)],
-            point_data={
-                "displacement": displacement,
-                "displacement_magnitude": np.linalg.norm(
-                    displacement, axis=1
-                ),
-                "velocity_magnitude": np.linalg.norm(velocity, axis=1),
-                "contact_state": contact_state,
-                "is_contact": is_contact,
-            },
-        )
-        frame_path = directory / f"{label}_{frame:04d}.vtu"
-        meshio.write(frame_path, mesh, binary=True)
-        frame_paths.append(frame_path)
-    pvd_path = directory / f"{label}.pvd"
-    _write_pvd(pvd_path, frame_paths, times)
-    return pvd_path, frame_paths, times
-
-
-def validate_vtk_series(pvd_path, expected_frames):
-    datasets = ET.parse(pvd_path).getroot().findall("./Collection/DataSet")
-    if len(datasets) != expected_frames:
-        raise RuntimeError(f"{pvd_path} has {len(datasets)} frames")
-    required = {
-        "displacement",
-        "displacement_magnitude",
-        "velocity_magnitude",
-        "contact_state",
-        "is_contact",
-    }
-    for dataset in datasets:
-        mesh = meshio.read(pvd_path.parent / dataset.attrib["file"])
-        if required != set(mesh.point_data):
-            raise RuntimeError("VTU point fields do not match the showcase contract")
-        if len(mesh.points) != 165 or len(mesh.cells_dict["quad"]) != 128:
-            raise RuntimeError("VTU mesh does not match the 32x4 showcase")
-        for values in mesh.point_data.values():
-            if not np.all(np.isfinite(values)):
-                raise RuntimeError("VTU contains non-finite point data")
-
-
 def _observation_history(free_displacement):
     return np.asarray(free_displacement) @ np.asarray(SYSTEM.observation)
 
@@ -407,76 +286,69 @@ def _representative_coefficients(controller, theta, seed):
     return coefficients[index - batch_start]
 
 
-def prepare_visualization_data(controller, trained_theta, history, fixed_test, trained_test):
+def replay_representative(controller, history, fixed_test, trained_test):
     relative_improvement = (fixed_test.losses - trained_test.losses) / fixed_test.losses
     median_improvement = float(np.median(relative_improvement))
-    representative_index = int(
-        np.argmin(np.abs(relative_improvement - median_improvement))
-    )
+    distance = np.abs(relative_improvement - median_improvement)
+    representative_index = int(np.flatnonzero(distance == np.min(distance))[0])
     representative_seed = int(H4_TEST_SEEDS[representative_index])
-    trained_coefficients = trained_test.coefficients[representative_index]
-
-    trajectory_start = time.perf_counter()
+    start = time.perf_counter()
     fixed_result = evaluate_full_trajectory(
         BASE_Q, np.zeros(5, dtype=np.float64), representative_seed
     )
-    trained_result = evaluate_full_trajectory(
-        BASE_Q, trained_coefficients, representative_seed
-    )
-    fixed_trajectory = _trajectory_arrays(fixed_result)
-    trained_trajectory = _trajectory_arrays(trained_result)
-
-    checkpoint_trajectories = []
-    for iteration in CHECKPOINT_ITERATIONS:
-        theta = np.load(
-            CHECKPOINT_DIRECTORY / f"theta_iter_{iteration:03d}.npy",
-            allow_pickle=False,
-        )
-        coefficients = _representative_coefficients(
-            controller, theta, representative_seed
-        )
-        result = _trajectory_arrays(
-            evaluate_full_trajectory(BASE_Q, coefficients, representative_seed)
-        )
-        checkpoint_trajectories.append(
-            {
-                "iteration": iteration,
-                "objective": history[iteration]["objective"],
-                "coefficients": coefficients,
-                "displacement": _observation_history(
-                    result["free_displacement"]
-                ),
-                "preload": np.asarray(
-                    preload_history(BASE_Q[1], coefficients[None, :])
-                )[0],
-            }
-        )
-    trajectory_seconds = time.perf_counter() - trajectory_start
-
-    full_path = OUTPUT_DIRECTORY / "representative_full_trajectories.npz"
+    fixed = _trajectory_arrays(fixed_result)
+    fixed_observation = _observation_history(fixed["free_displacement"])
+    fixed_velocity = _observation_history(fixed["free_velocity"])
+    displacement = np.empty((MAX_ITERATIONS + 1, NUM_STEPS), dtype=np.float64)
+    velocity = np.empty_like(displacement)
+    preload = np.empty_like(displacement)
+    slip = np.empty((MAX_ITERATIONS + 1, NUM_STEPS, 2), dtype=np.int8)
+    final = final_result = final_coefficients = None
+    for iteration, theta in enumerate(history.theta):
+        coefficients = _representative_coefficients(controller, theta, representative_seed)
+        result = evaluate_full_trajectory(BASE_Q, coefficients, representative_seed)
+        arrays = _trajectory_arrays(result)
+        displacement[iteration] = _observation_history(arrays["free_displacement"])
+        velocity[iteration] = _observation_history(arrays["free_velocity"])
+        preload[iteration] = np.asarray(
+            preload_history(BASE_Q[1], coefficients[None, :])
+        )[0]
+        slip[iteration] = arrays["slip"]
+        if iteration == MAX_ITERATIONS:
+            final, final_result, final_coefficients = arrays, result, coefficients
+        if iteration % 50 == 0 or iteration == MAX_ITERATIONS:
+            print(f"representative_replay={iteration:03d}/{MAX_ITERATIONS}", flush=True)
+    replay_path = OUTPUT_DIRECTORY / "representative_replay.npz"
     np.savez(
-        full_path,
+        replay_path,
+        representative_seed=representative_seed,
         times=np.asarray(SYSTEM.times),
-        fixed_displacement=fixed_trajectory["displacement"],
-        fixed_velocity=fixed_trajectory["velocity"],
-        fixed_slip=fixed_trajectory["slip"],
-        trained_displacement=trained_trajectory["displacement"],
-        trained_velocity=trained_trajectory["velocity"],
-        trained_slip=trained_trajectory["slip"],
+        fixed_displacement=fixed_observation,
+        fixed_velocity=fixed_velocity,
+        fixed_slip=fixed["slip"],
+        displacement_history=displacement,
+        velocity_history=velocity,
+        preload_history=preload,
+        slip_history=slip,
     )
     return {
         "representative_seed": representative_seed,
         "representative_index": representative_index,
         "median_improvement": median_improvement,
         "relative_improvement": relative_improvement,
-        "trained_coefficients": trained_coefficients,
-        "fixed": fixed_trajectory,
-        "trained": trained_trajectory,
+        "fixed": fixed,
         "fixed_result": fixed_result,
-        "trained_result": trained_result,
-        "checkpoint_trajectories": checkpoint_trajectories,
-        "trajectory_seconds": trajectory_seconds,
-        "full_path": full_path,
+        "fixed_observation": fixed_observation,
+        "fixed_velocity": fixed_velocity,
+        "final": final,
+        "final_result": final_result,
+        "final_coefficients": final_coefficients,
+        "displacement": displacement,
+        "velocity": velocity,
+        "preload": preload,
+        "slip": slip,
+        "seconds": time.perf_counter() - start,
+        "path": replay_path,
     }
 
 
@@ -507,7 +379,14 @@ def _style_axis(axis):
         spine.set_visible(True)
         spine.set_color(FRAME_COLOR)
         spine.set_linewidth(1.1)
-    axis.tick_params(top=False, right=False, direction="in", width=1.0)
+    axis.tick_params(top=True, right=True, direction="in", width=1.0)
+
+
+def _expanded_limits(values, fraction=0.06):
+    minimum, maximum = float(np.min(values)), float(np.max(values))
+    span = maximum - minimum
+    margin = fraction * (span if span > 0.0 else max(abs(maximum), 1.0))
+    return minimum - margin, maximum + margin
 
 
 def plot_large_fem_setup():
@@ -516,38 +395,23 @@ def plot_large_fem_setup():
     for cell in SYSTEM.cells:
         polygon = SYSTEM.points[np.append(cell, cell[0])]
         segments.extend(zip(polygon[:-1], polygon[1:]))
-    axis.add_collection(
-        LineCollection(segments, colors="#7A828C", linewidths=0.55)
-    )
+    axis.add_collection(LineCollection(segments, colors="#7A828C", linewidths=0.55))
     axis.plot([0, 0], [0, 0.1], color=FRAME_COLOR, linewidth=4.0)
     axis.scatter(
-        SYSTEM.contact_coordinates[:, 0],
-        SYSTEM.contact_coordinates[:, 1],
-        s=70,
-        color=[STICK_COLOR, SLIP_COLOR],
-        edgecolor="white",
-        linewidth=0.9,
-        zorder=4,
+        SYSTEM.contact_coordinates[:, 0], SYSTEM.contact_coordinates[:, 1],
+        s=70, color=[STICK_COLOR, SLIP_COLOR], edgecolor="white", linewidth=0.9, zorder=4,
     )
     axis.text(0.6875, -0.015, "A", ha="center", va="top", weight="bold")
     axis.text(0.9375, -0.015, "B", ha="center", va="top", weight="bold")
     axis.annotate(
-        r"$F(t,\xi)$",
-        xy=(1.0, 0.05),
-        xytext=(0.91, 0.18),
+        r"$F(t,\xi)$", xy=(1.0, 0.05), xytext=(0.91, 0.18),
         arrowprops={"arrowstyle": "-|>", "color": ACCENT_COLOR, "lw": 1.8},
-        color=ACCENT_COLOR,
-        ha="center",
+        color=ACCENT_COLOR, ha="center",
     )
-    axis.scatter(
-        [1.0], [0.05], marker="D", s=45, color=MLP_COLOR, zorder=5
-    )
+    axis.scatter([1.0], [0.05], marker="D", s=45, color=MLP_COLOR, zorder=5)
     axis.text(0.985, 0.035, "obs.", ha="right", va="top", color=MLP_COLOR)
     axis.text(0.012, 0.087, "fixed", ha="left", va="top")
-    axis.set_xlim(-0.02, 1.04)
-    axis.set_ylim(-0.035, 0.205)
-    axis.set_xlabel("x")
-    axis.set_ylabel("y")
+    axis.set(xlim=(-0.02, 1.04), ylim=(-0.035, 0.205), xlabel="x", ylabel="y")
     axis.set_aspect("equal")
     _style_axis(axis)
     path = OUTPUT_DIRECTORY / "large_fem_setup.png"
@@ -557,28 +421,17 @@ def plot_large_fem_setup():
 
 
 def plot_optimization_history(history):
-    iterations = np.array([row["iteration"] for row in history])
-    objectives = np.array([row["objective"] for row in history])
-    fig, axis = plt.subplots(figsize=(6.8, 4.3), constrained_layout=True)
-    axis.axhline(
-        objectives[0], color=FIXED_COLOR, linewidth=1.5, linestyle="--", label="Fixed"
-    )
-    axis.plot(
-        iterations,
-        objectives,
-        color=MLP_COLOR,
-        linewidth=2.2,
-        label="MLP",
-    )
-    axis.scatter(
-        [0, 100], [objectives[0], objectives[-1]],
-        color=[FIXED_COLOR, MLP_COLOR], s=35, zorder=3
-    )
-    axis.set_xlabel("Iteration")
-    axis.set_ylabel("Objective")
+    iterations = np.arange(MAX_ITERATIONS + 1)
+    fig, axis = plt.subplots(figsize=(7.2, 4.4), constrained_layout=True)
+    axis.axhline(history.objective[0], color=FIXED_COLOR, lw=1.4, ls="--", label="Fixed")
+    axis.plot(iterations, history.objective, color=MLP_COLOR, lw=2.0, label="MLP")
+    milestones = np.asarray(MILESTONE_ITERATIONS)
+    axis.scatter(milestones, history.objective[milestones], color=ACCENT_COLOR, s=27, zorder=3)
+    axis.set(xlim=(0, MAX_ITERATIONS), xlabel="Iteration", ylabel="Training objective")
+    axis.set_xticks(MILESTONE_ITERATIONS)
     axis.legend(loc="best")
     _style_axis(axis)
-    path = OUTPUT_DIRECTORY / "optimization_history.png"
+    path = OUTPUT_DIRECTORY / "optimization_history_500.png"
     fig.savefig(path, dpi=300, bbox_inches="tight")
     plt.close(fig)
     return path
@@ -588,11 +441,10 @@ def plot_held_out_improvement(relative_improvement):
     percent = 100.0 * relative_improvement
     colors = np.where(percent >= 0.0, MLP_COLOR, ACCENT_COLOR)
     fig, axis = plt.subplots(figsize=(8.0, 4.3), constrained_layout=True)
-    axis.axhline(0.0, color=FRAME_COLOR, linewidth=1.0)
-    axis.vlines(H4_TEST_SEEDS, 0.0, percent, color=colors, linewidth=1.2)
+    axis.axhline(0.0, color=FRAME_COLOR, lw=1.0)
+    axis.vlines(H4_TEST_SEEDS, 0.0, percent, color=colors, lw=1.2)
     axis.scatter(H4_TEST_SEEDS, percent, color=colors, s=19, zorder=3)
-    axis.set_xlabel("Held-out seed")
-    axis.set_ylabel("Improvement (%)")
+    axis.set(xlabel="Held-out seed", ylabel="Improvement (%)")
     axis.set_xticks(H4_TEST_SEEDS[::8])
     _style_axis(axis)
     path = OUTPUT_DIRECTORY / "held_out_improvement.png"
@@ -601,31 +453,16 @@ def plot_held_out_improvement(relative_improvement):
     return path
 
 
-def plot_representative_response(visualization):
-    times = np.asarray(SYSTEM.times)
-    periods = times * SYSTEM.omega_1 / (2.0 * np.pi)
-    fixed_displacement = _observation_history(
-        visualization["fixed"]["free_displacement"]
-    )
-    trained_displacement = _observation_history(
-        visualization["trained"]["free_displacement"]
-    )
-    trained_preload = np.asarray(
-        preload_history(
-            BASE_Q[1], visualization["trained_coefficients"][None, :]
-        )
-    )[0]
-    fig, axes = plt.subplots(
-        2, 1, figsize=(7.8, 6.0), sharex=True, constrained_layout=True
-    )
-    axes[0].plot(periods, fixed_displacement, color=FIXED_COLOR, lw=1.5, label="Fixed")
-    axes[0].plot(periods, trained_displacement, color=MLP_COLOR, lw=1.7, label="MLP")
+def plot_representative_response(replay):
+    periods = np.asarray(SYSTEM.times) * SYSTEM.omega_1 / (2.0 * np.pi)
+    fig, axes = plt.subplots(2, 1, figsize=(7.8, 6.0), sharex=True, constrained_layout=True)
+    axes[0].plot(periods, replay["fixed_observation"], color=FIXED_COLOR, lw=1.5, label="Fixed")
+    axes[0].plot(periods, replay["displacement"][-1], color=MLP_COLOR, lw=1.7, label="Iteration 500")
     axes[0].set_ylabel("Displacement")
     axes[0].legend(loc="best")
     axes[1].axhline(BASE_Q[1], color=FIXED_COLOR, lw=1.3, ls="--", label="Fixed")
-    axes[1].plot(periods, trained_preload, color=MLP_COLOR, lw=1.7, label="MLP")
-    axes[1].set_xlabel("Time (periods)")
-    axes[1].set_ylabel("Preload")
+    axes[1].plot(periods, replay["preload"][-1], color=MLP_COLOR, lw=1.7, label="Iteration 500")
+    axes[1].set(xlabel="Time (periods)", ylabel="Preload")
     axes[1].legend(loc="best")
     for axis in axes:
         _style_axis(axis)
@@ -635,184 +472,141 @@ def plot_representative_response(visualization):
     return path
 
 
-def create_progress_gif(checkpoint_trajectories):
+def _quantized_frame(fig, colors=96):
+    fig.canvas.draw()
+    rgba = np.asarray(fig.canvas.buffer_rgba())
+    return Image.fromarray(rgba[:, :, :3]).quantize(colors=colors, method=Image.Quantize.MEDIANCUT)
+
+
+def _save_gif(frames, path, duration):
+    frames[0].save(
+        path, save_all=True, append_images=frames[1:], duration=duration,
+        loop=0, optimize=False, disposal=2,
+    )
+    return path
+
+
+def create_all_iterations_gif(history, replay):
     periods = np.asarray(SYSTEM.times) * SYSTEM.omega_1 / (2.0 * np.pi)
-    all_displacements = np.concatenate(
-        [entry["displacement"] for entry in checkpoint_trajectories]
-    )
-    all_preloads = np.concatenate(
-        [entry["preload"] for entry in checkpoint_trajectories]
-    )
-    displacement_margin = 0.05 * np.ptp(all_displacements)
-    preload_margin = 0.05 * np.ptp(all_preloads)
     fig, axes = plt.subplots(
-        2, 1, figsize=(7.6, 5.8), sharex=True, constrained_layout=True
+        3, 1, figsize=(6.8, 6.8), dpi=76,
+        gridspec_kw={"height_ratios": [0.85, 1.0, 1.25]}, constrained_layout=True,
     )
-    displacement_line, = axes[0].plot([], [], color=MLP_COLOR, lw=1.8)
-    preload_line, = axes[1].plot([], [], color=MLP_COLOR, lw=1.8)
-    axes[1].axhline(BASE_Q[1], color=FIXED_COLOR, lw=1.2, ls="--")
-    annotation = axes[0].text(
-        0.02, 0.95, "", transform=axes[0].transAxes, ha="left", va="top"
+    objective_line, = axes[0].plot([], [], color=MLP_COLOR, lw=1.8)
+    objective_marker, = axes[0].plot([], [], marker="o", color=ACCENT_COLOR, ms=4.5)
+    axes[0].axhline(history.objective[0], color=FIXED_COLOR, lw=1.1, ls="--")
+    axes[0].set(xlim=(0, MAX_ITERATIONS), ylim=_expanded_limits(history.objective), ylabel="Train objective")
+    axes[1].axhline(BASE_Q[1], color=FIXED_COLOR, lw=1.2, ls="--", label="Fixed")
+    preload_line, = axes[1].plot([], [], color=MLP_COLOR, lw=1.6, label="Current")
+    axes[1].set(
+        xlim=(periods[0], periods[-1]),
+        ylim=_expanded_limits(np.concatenate(([BASE_Q[1]], replay["preload"].ravel()))),
+        ylabel="Preload",
     )
-    axes[0].set_xlim(periods[0], periods[-1])
-    axes[0].set_ylim(
-        np.min(all_displacements) - displacement_margin,
-        np.max(all_displacements) + displacement_margin,
+    axes[1].legend(loc="upper right", ncol=2)
+    axes[2].plot(periods, replay["fixed_observation"], color=FIXED_COLOR, lw=1.3, label="Fixed")
+    displacement_line, = axes[2].plot([], [], color=MLP_COLOR, lw=1.6, label="Current")
+    all_displacement = np.concatenate((replay["fixed_observation"], replay["displacement"].ravel()))
+    axes[2].set(
+        xlim=(periods[0], periods[-1]), ylim=_expanded_limits(all_displacement),
+        xlabel="Time (periods)", ylabel="Displacement",
     )
-    axes[1].set_ylim(
-        np.min(all_preloads) - preload_margin,
-        np.max(all_preloads) + preload_margin,
-    )
-    axes[0].set_ylabel("Displacement")
-    axes[1].set_ylabel("Preload")
-    axes[1].set_xlabel("Time (periods)")
+    axes[2].legend(loc="upper right", ncol=2)
     for axis in axes:
         _style_axis(axis)
-
-    def update(frame):
-        entry = checkpoint_trajectories[frame]
-        displacement_line.set_data(periods, entry["displacement"])
-        preload_line.set_data(periods, entry["preload"])
-        annotation.set_text(
-            f"Iteration {entry['iteration']}\nJ = {entry['objective']:.6g}"
-        )
-        return displacement_line, preload_line, annotation
-
-    animation = FuncAnimation(
-        fig, update, frames=len(checkpoint_trajectories), blit=False
-    )
-    path = OUTPUT_DIRECTORY / "optimization_progress.gif"
-    animation.save(path, writer=PillowWriter(fps=1), dpi=120)
-    plt.close(fig)
-    return path
-
-
-def write_render_metadata(fixed_pvd, trained_pvd, sampled_times, frame_indices, visualization):
-    fixed_magnitude = np.linalg.norm(visualization["fixed"]["displacement"], axis=2)
-    trained_magnitude = np.linalg.norm(
-        visualization["trained"]["displacement"], axis=2
-    )
-    displacement_max = float(max(np.max(fixed_magnitude), np.max(trained_magnitude)))
-    deformation_scale = 0.12 / displacement_max
-    points_3d = np.column_stack((SYSTEM.points, np.zeros(len(SYSTEM.points))))
-
-    def series_metadata(label, pvd_path, trajectory):
-        displacement_3d = np.concatenate(
-            (
-                trajectory["displacement"][frame_indices],
-                np.zeros((len(frame_indices), len(SYSTEM.points), 1)),
-            ),
-            axis=2,
-        )
-        centers = (
-            points_3d[SYSTEM.contact_nodes][None, :, :]
-            + deformation_scale * displacement_3d[:, SYSTEM.contact_nodes, :]
-        )
-        return {
-            "label": label,
-            "pvd": str(pvd_path.resolve()),
-            "contact_centers": centers.tolist(),
-            "contact_state": trajectory["slip"][frame_indices].tolist(),
-        }
-
-    metadata = {
-        "times": sampled_times.tolist(),
-        "displacement_max": displacement_max,
-        "deformation_scale": deformation_scale,
-        "camera_parallel_scale": 0.30,
-        "fixed": series_metadata("Fixed", fixed_pvd, visualization["fixed"]),
-        "trained": series_metadata(
-            "MLP after 100 iterations", trained_pvd, visualization["trained"]
-        ),
-    }
-    path = PARAVIEW_DIRECTORY / "render_metadata.json"
-    path.write_text(json.dumps(metadata, indent=2))
-    return path
-
-
-def _find_pvpython():
-    candidates = [
-        Path("/Applications/ParaView-6.1.0.app/Contents/bin/pvpython"),
-        Path("/Applications/ParaView.app/Contents/bin/pvpython"),
-    ]
-    for candidate in candidates:
-        if candidate.is_file():
-            return candidate
-    result = subprocess.run(
-        ["which", "pvpython"], capture_output=True, text=True, check=False
-    )
-    return Path(result.stdout.strip()) if result.returncode == 0 else None
-
-
-def _combine_deformation_gif():
-    fixed_paths = sorted((RENDER_DIRECTORY / "fixed").glob("fixed_*.png"))
-    trained_paths = sorted((RENDER_DIRECTORY / "trained").glob("trained_*.png"))
-    if len(fixed_paths) != NUM_VISUALIZATION_FRAMES or len(trained_paths) != NUM_VISUALIZATION_FRAMES:
-        raise RuntimeError("ParaView did not render the expected 80+80 frames")
+    annotation = fig.suptitle("", fontsize=10)
     frames = []
-    for fixed_path, trained_path in zip(fixed_paths, trained_paths):
-        with Image.open(fixed_path) as fixed_image, Image.open(trained_path) as trained_image:
-            combined = Image.new("RGB", (1800, 360), "white")
-            combined.paste(fixed_image.convert("RGB"), (0, 0))
-            combined.paste(trained_image.convert("RGB"), (900, 0))
-            combined = combined.resize((1400, 280), Image.Resampling.LANCZOS)
-            frames.append(
-                combined.quantize(colors=128, method=Image.Quantize.MEDIANCUT)
-            )
-    path = OUTPUT_DIRECTORY / "fixed_vs_mlp_deformation.gif"
-    frames[0].save(
-        path,
-        save_all=True,
-        append_images=frames[1:],
-        duration=90,
-        loop=0,
-        optimize=True,
-        disposal=2,
-    )
-    return path
-
-
-def render_deformation_gif(metadata_path):
-    pvpython = _find_pvpython()
-    if pvpython is None:
-        raise RuntimeError("pvpython is not available")
-    render_script = ROOT / "scripts/render_showcase_paraview.py"
-    for series in ("fixed", "trained"):
-        output = RENDER_DIRECTORY / series
-        output.mkdir(parents=True, exist_ok=True)
-        subprocess.run(
-            [
-                str(pvpython),
-                str(render_script),
-                "--metadata",
-                str(metadata_path),
-                "--series",
-                series,
-                "--output",
-                str(output),
-            ],
-            cwd=ROOT,
-            check=True,
+    iterations = np.arange(MAX_ITERATIONS + 1)
+    for iteration in iterations:
+        objective_line.set_data(iterations[: iteration + 1], history.objective[: iteration + 1])
+        objective_marker.set_data([iteration], [history.objective[iteration]])
+        preload_line.set_data(periods, replay["preload"][iteration])
+        displacement_line.set_data(periods, replay["displacement"][iteration])
+        annotation.set_text(
+            f"Iteration {iteration:03d}   Train objective = {history.objective[iteration]:.7f}   "
+            f"Held-out seed = {replay['representative_seed']}"
         )
-    return _combine_deformation_gif()
+        frames.append(_quantized_frame(fig))
+        if iteration % 100 == 0 or iteration == MAX_ITERATIONS:
+            print(f"optimizer_gif_frame={iteration:03d}/{MAX_ITERATIONS}", flush=True)
+    plt.close(fig)
+    return _save_gif(frames, OUTPUT_DIRECTORY / "optimization_all_iterations.gif", duration=45)
 
 
-def _write_summary(path, summary):
-    path.write_text(json.dumps(summary, indent=2))
+def create_deformation_gif(replay):
+    fixed, trained = replay["fixed"]["displacement"], replay["final"]["displacement"]
+    fixed_slip, trained_slip = replay["fixed"]["slip"], replay["final"]["slip"]
+    magnitude = np.concatenate((np.linalg.norm(fixed, axis=2).ravel(), np.linalg.norm(trained, axis=2).ravel()))
+    magnitude_max = float(np.max(magnitude))
+    deformation_scale = 0.12 / magnitude_max
+    norm = Normalize(0.0, magnitude_max)
+    frame_indices = np.linspace(0, NUM_STEPS - 1, NUM_PHYSICAL_FRAMES, dtype=np.int64)
+    fig, axes = plt.subplots(1, 2, figsize=(8.0, 2.7), dpi=95, constrained_layout=True)
+    collections, contact_artists = [], []
+    for axis, label in zip(axes, ("Fixed", "Iteration 500 MLP")):
+        collection = PolyCollection(
+            SYSTEM.points[SYSTEM.cells], array=np.zeros(len(SYSTEM.cells)), cmap="viridis", norm=norm,
+            edgecolors="#4C5560", linewidths=0.35,
+        )
+        axis.add_collection(collection)
+        artists = [axis.scatter([], [], s=32, edgecolor="white", linewidth=0.6, zorder=5) for _ in range(2)]
+        axis.text(0.02, 0.94, label, transform=axis.transAxes, ha="left", va="top", weight="bold")
+        axis.set(xlim=(-0.03, 1.04), ylim=(-0.18, 0.28), xlabel="x")
+        axis.set_aspect("equal")
+        _style_axis(axis)
+        collections.append(collection)
+        contact_artists.append(artists)
+    axes[0].set_ylabel("y")
+    colorbar = fig.colorbar(collections[-1], ax=axes, fraction=0.028, pad=0.02)
+    colorbar.set_label("Displacement magnitude")
+    annotation = fig.text(0.5, 0.995, "", ha="center", va="top", fontsize=10)
+    frames = []
+    for step in frame_indices:
+        for panel, (field, states) in enumerate(((fixed, fixed_slip), (trained, trained_slip))):
+            deformed = SYSTEM.points + deformation_scale * field[step]
+            collections[panel].set_verts(deformed[SYSTEM.cells])
+            collections[panel].set_array(np.mean(np.linalg.norm(field[step], axis=1)[SYSTEM.cells], axis=1))
+            for contact, artist in enumerate(contact_artists[panel]):
+                artist.set_offsets(deformed[SYSTEM.contact_nodes[contact]][None, :])
+                artist.set_color(SLIP_COLOR if states[step, contact] else STICK_COLOR)
+        periods = float(SYSTEM.times[step] * SYSTEM.omega_1 / (2.0 * np.pi))
+        annotation.set_text(
+            f"Held-out seed {replay['representative_seed']}   Time = {periods:.2f} periods   "
+            "blue: STICK, orange: SLIP"
+        )
+        frames.append(_quantized_frame(fig, colors=128))
+    plt.close(fig)
+    path = _save_gif(frames, OUTPUT_DIRECTORY / "fixed_vs_final_deformation.gif", duration=85)
+    return path, deformation_scale, magnitude_max
+
+
+def _validate_media(paths, expected_gif_frames):
+    for path in paths:
+        with Image.open(path) as image:
+            image.verify()
+    for path, expected in expected_gif_frames.items():
+        with Image.open(path) as image:
+            if image.n_frames != expected:
+                raise RuntimeError(f"{path} has {image.n_frames} frames, expected {expected}")
+
+
+def _transition_summary(result):
+    return {
+        "stick_to_slip": np.asarray(result.stick_to_slip, dtype=np.int64).tolist(),
+        "slip_to_stick": np.asarray(result.slip_to_stick, dtype=np.int64).tolist(),
+    }
 
 
 def main() -> int:
     torch.set_default_dtype(torch.float64)
     _configure_style()
     OUTPUT_DIRECTORY.mkdir(parents=True, exist_ok=True)
-    CHECKPOINT_DIRECTORY.mkdir(parents=True, exist_ok=True)
-    PARAVIEW_DIRECTORY.mkdir(parents=True, exist_ok=True)
-    RENDER_DIRECTORY.mkdir(parents=True, exist_ok=True)
-
     controller, physics = create_tesseracts()
     preflight_result = preflight(controller, physics)
     print("## Preflight")
     print(f"mesh: {NUM_ELEMENTS_X}x{NUM_ELEMENTS_Y} QUAD4")
+    print(f"elements: {len(SYSTEM.cells)}")
+    print(f"nodes: {len(SYSTEM.points)}")
     print(f"total_dofs: {SYSTEM.num_total_dofs}")
     print(f"free_dofs: {SYSTEM.num_free_dofs}")
     print(f"omega_1: {SYSTEM.omega_1:.16g}")
@@ -826,171 +620,111 @@ def main() -> int:
 
     fixed_train = preflight_result["fixed"]
     fixed_train_objective = float(np.mean(fixed_train.losses))
-    trained_theta, history, training_seconds = train(
-        controller, physics, fixed_train_objective
-    )
-    history_path = write_history(history)
-    trained_train = evaluate(
-        controller, physics, trained_theta, H4_TRAINING_SEEDS
-    )
-
+    history, training_seconds, history_path = train(controller, physics, fixed_train_objective)
+    final_theta = history.theta[-1]
+    trained_train = evaluate(controller, physics, final_theta, H4_TRAINING_SEEDS)
     evaluation_start = time.perf_counter()
-    fixed_test = evaluate(
-        controller, physics, trained_theta, H4_TEST_SEEDS, fixed=True
-    )
-    trained_test = evaluate(
-        controller, physics, trained_theta, H4_TEST_SEEDS
-    )
+    fixed_test = evaluate(controller, physics, final_theta, H4_TEST_SEEDS, fixed=True)
+    trained_test = evaluate(controller, physics, final_theta, H4_TEST_SEEDS)
     evaluation_seconds = time.perf_counter() - evaluation_start
 
     trained_train_objective = float(np.mean(trained_train.losses))
     fixed_test_objective = float(np.mean(fixed_test.losses))
     trained_test_objective = float(np.mean(trained_test.losses))
-    train_improvement = (
-        fixed_train_objective - trained_train_objective
-    ) / fixed_train_objective
-    test_improvement = (
-        fixed_test_objective - trained_test_objective
-    ) / fixed_test_objective
+    test_improvement = (fixed_test_objective - trained_test_objective) / fixed_test_objective
     win_count = int(np.count_nonzero(trained_test.losses < fixed_test.losses))
-
-    visualization = prepare_visualization_data(
-        controller, trained_theta, history, fixed_test, trained_test
-    )
-    frame_indices = np.linspace(
-        0, NUM_STEPS - 1, NUM_VISUALIZATION_FRAMES, dtype=np.int64
-    )
-    export_start = time.perf_counter()
-    fixed_pvd, _, sampled_times = export_series(
-        "fixed", visualization["fixed"], frame_indices
-    )
-    trained_pvd, _, _ = export_series(
-        "trained", visualization["trained"], frame_indices
-    )
-    validate_vtk_series(fixed_pvd, NUM_VISUALIZATION_FRAMES)
-    validate_vtk_series(trained_pvd, NUM_VISUALIZATION_FRAMES)
-    export_seconds = time.perf_counter() - export_start
-
-    metadata_path = write_render_metadata(
-        fixed_pvd, trained_pvd, sampled_times, frame_indices, visualization
-    )
+    replay = replay_representative(controller, history, fixed_test, trained_test)
     figure_paths = [
-        plot_large_fem_setup(),
-        plot_optimization_history(history),
-        plot_held_out_improvement(visualization["relative_improvement"]),
-        plot_representative_response(visualization),
+        plot_large_fem_setup(), plot_optimization_history(history),
+        plot_held_out_improvement(replay["relative_improvement"]), plot_representative_response(replay),
     ]
-    progress_gif = create_progress_gif(
-        visualization["checkpoint_trajectories"]
-    )
-    deformation_gif = render_deformation_gif(metadata_path)
+    gif_start = time.perf_counter()
+    optimizer_gif = create_all_iterations_gif(history, replay)
+    deformation_gif, deformation_scale, displacement_color_max = create_deformation_gif(replay)
+    gif_seconds = time.perf_counter() - gif_start
+    media_paths = figure_paths + [optimizer_gif, deformation_gif]
+    _validate_media(media_paths, {optimizer_gif: 501, deformation_gif: NUM_PHYSICAL_FRAMES})
 
-    representative_fixed_transitions = {
-        "stick_to_slip": np.asarray(
-            visualization["fixed_result"].stick_to_slip
-        ).tolist(),
-        "slip_to_stick": np.asarray(
-            visualization["fixed_result"].slip_to_stick
-        ).tolist(),
-    }
-    representative_trained_transitions = {
-        "stick_to_slip": np.asarray(
-            visualization["trained_result"].stick_to_slip
-        ).tolist(),
-        "slip_to_stick": np.asarray(
-            visualization["trained_result"].slip_to_stick
-        ).tolist(),
-    }
+    objective_min_iteration = int(np.argmin(history.objective))
+    objective_min = float(history.objective[objective_min_iteration])
+    improvement_100 = (history.objective[0] - history.objective[100]) / history.objective[0]
+    improvement_500 = (history.objective[0] - history.objective[500]) / history.objective[0]
+    representative_fixed_transitions = _transition_summary(replay["fixed_result"])
+    representative_final_transitions = _transition_summary(replay["final_result"])
     passed = bool(
-        np.all(np.isfinite([row["objective"] for row in history]))
-        and np.all(np.isfinite([row["gradient_norm"] for row in history[1:]]))
-        and trained_train_objective < fixed_train_objective
-        and trained_test_objective < fixed_test_objective
-        and _switching_gate(trained_test)
+        np.all(np.isfinite(history.theta)) and np.all(np.isfinite(history.objective))
+        and np.all(np.isfinite(history.gradient)) and np.all(np.isfinite(history.n_min))
+        and np.all(np.isfinite(history.n_max)) and trained_train_objective < fixed_train_objective
+        and trained_test_objective < fixed_test_objective and _switching_gate(trained_test)
     )
     summary = {
-        "mesh": "32x4 QUAD4",
-        "elements": 128,
-        "nodes": 165,
-        "total_dofs": 330,
-        "free_dofs": 320,
-        "contact_coordinates": SYSTEM.contact_coordinates.tolist(),
-        "omega_1": SYSTEM.omega_1,
-        "initial_train_objective": fixed_train_objective,
-        "final_train_objective": trained_train_objective,
-        "train_relative_improvement": train_improvement,
+        "mesh": "32x4 QUAD4", "elements": 128, "nodes": 165,
+        "total_dofs": 330, "free_dofs": 320,
+        "contact_coordinates": SYSTEM.contact_coordinates.tolist(), "omega_1": float(SYSTEM.omega_1),
+        "milestone_objectives": {str(i): float(history.objective[i]) for i in MILESTONE_ITERATIONS},
+        "minimum_train_objective": objective_min, "minimum_train_iteration": objective_min_iteration,
+        "improvement_0_to_100": improvement_100, "improvement_0_to_500": improvement_500,
         "fixed_test_objective": fixed_test_objective,
-        "trained_test_objective": trained_test_objective,
-        "test_relative_improvement": test_improvement,
-        "test_win_count": win_count,
-        "gradient_norm_start": history[1]["gradient_norm"],
-        "gradient_norm_end": history[-1]["gradient_norm"],
-        "N_min_final": history[-1]["N_min"],
-        "N_max_final": history[-1]["N_max"],
-        "fixed_train_stick_to_slip": np.sum(
-            fixed_train.stick_to_slip, axis=0
-        ).tolist(),
-        "fixed_train_slip_to_stick": np.sum(
-            fixed_train.slip_to_stick, axis=0
-        ).tolist(),
-        "trained_test_stick_to_slip": np.sum(
-            trained_test.stick_to_slip, axis=0
-        ).tolist(),
-        "trained_test_slip_to_stick": np.sum(
-            trained_test.slip_to_stick, axis=0
-        ).tolist(),
-        "representative_seed": visualization["representative_seed"],
-        "representative_median_improvement": visualization["median_improvement"],
+        "iteration_500_test_objective": trained_test_objective,
+        "test_relative_improvement": test_improvement, "test_win_count": win_count,
+        "test_fixed_losses": fixed_test.losses.tolist(),
+        "test_iteration_500_losses": trained_test.losses.tolist(),
+        "test_seed_relative_improvement": replay["relative_improvement"].tolist(),
+        "gradient_norm_start": float(history.gradient[0]), "gradient_norm_end": float(history.gradient[-1]),
+        "N_min_final": float(history.n_min[-1]), "N_max_final": float(history.n_max[-1]),
+        "fixed_train_stick_to_slip": np.sum(fixed_train.stick_to_slip, axis=0).tolist(),
+        "fixed_train_slip_to_stick": np.sum(fixed_train.slip_to_stick, axis=0).tolist(),
+        "trained_test_stick_to_slip": np.sum(trained_test.stick_to_slip, axis=0).tolist(),
+        "trained_test_slip_to_stick": np.sum(trained_test.slip_to_stick, axis=0).tolist(),
+        "representative_seed": replay["representative_seed"],
+        "representative_median_improvement": replay["median_improvement"],
         "representative_fixed_transitions": representative_fixed_transitions,
-        "representative_trained_transitions": representative_trained_transitions,
+        "representative_iteration_500_transitions": representative_final_transitions,
         "preflight_backward_seconds": preflight_result["backward_seconds"],
-        "training_seconds": training_seconds,
-        "held_out_evaluation_seconds": evaluation_seconds,
-        "trajectory_seconds": visualization["trajectory_seconds"],
-        "vtk_export_seconds": export_seconds,
-        "peak_rss_gib": _peak_rss_gib(),
-        "pass": passed,
+        "training_seconds": training_seconds, "held_out_evaluation_seconds": evaluation_seconds,
+        "representative_replay_seconds": replay["seconds"], "gif_generation_seconds": gif_seconds,
+        "deformation_scale": deformation_scale, "displacement_color_max": displacement_color_max,
+        "peak_rss_gib": _peak_rss_gib(), "pass": passed,
     }
     summary_path = OUTPUT_DIRECTORY / "showcase_summary.json"
-    _write_summary(summary_path, summary)
+    summary_path.write_text(json.dumps(summary, indent=2))
 
-    print("## Larger FEM")
+    print("## 32x4 FEM")
     print(f"contact_coordinates: {SYSTEM.contact_coordinates.tolist()}")
     print(
         "fixed_train_transitions: "
         f"stick_to_slip={summary['fixed_train_stick_to_slip']} "
         f"slip_to_stick={summary['fixed_train_slip_to_stick']}"
     )
-    print("## 100-iteration optimization")
-    print(f"J_initial: {fixed_train_objective:.16g}")
-    print(f"J_final: {trained_train_objective:.16g}")
-    print(f"train_relative_improvement: {train_improvement:.16g}")
-    print(f"gradient_norm_start: {history[1]['gradient_norm']:.16g}")
-    print(f"gradient_norm_end: {history[-1]['gradient_norm']:.16g}")
-    print(f"N_final: [{history[-1]['N_min']:.16g}, {history[-1]['N_max']:.16g}]")
+    print("## 500-step optimization")
+    for iteration in MILESTONE_ITERATIONS:
+        print(f"J_iter{iteration}: {history.objective[iteration]:.16g}")
+    print(f"J_minimum: {objective_min:.16g} at iteration {objective_min_iteration}")
+    print(f"improvement_0_to_100: {improvement_100:.16g}")
+    print(f"improvement_0_to_500: {improvement_500:.16g}")
+    print(f"gradient_norm_start: {history.gradient[0]:.16g}")
+    print(f"gradient_norm_end: {history.gradient[-1]:.16g}")
+    print(f"N_final: [{history.n_min[-1]:.16g}, {history.n_max[-1]:.16g}]")
     print("## Held-out evaluation")
     print(f"J_fixed_test: {fixed_test_objective:.16g}")
-    print(f"J_mlp_test: {trained_test_objective:.16g}")
+    print(f"J_iter500_test: {trained_test_objective:.16g}")
     print(f"test_relative_improvement: {test_improvement:.16g}")
     print(f"test_win_count: {win_count}/64")
-    print(f"representative_seed: {visualization['representative_seed']}")
+    print(f"representative_seed: {replay['representative_seed']}")
     print(f"representative_fixed_transitions: {representative_fixed_transitions}")
-    print(f"representative_trained_transitions: {representative_trained_transitions}")
+    print(f"representative_iteration_500_transitions: {representative_final_transitions}")
     print("## Runtime")
     print(f"preflight_backward_seconds: {preflight_result['backward_seconds']:.9g}")
     print(f"training_seconds: {training_seconds:.9g}")
     print(f"held_out_evaluation_seconds: {evaluation_seconds:.9g}")
-    print(f"trajectory_seconds: {visualization['trajectory_seconds']:.9g}")
-    print(f"vtk_export_seconds: {export_seconds:.9g}")
+    print(f"representative_replay_seconds: {replay['seconds']:.9g}")
+    print(f"gif_generation_seconds: {gif_seconds:.9g}")
     print(f"peak_rss_gib: {_peak_rss_gib():.9g}")
     print("## Visualization")
-    for path in figure_paths:
+    for path in media_paths:
         print(path.resolve())
-    print(deformation_gif.resolve())
-    print(progress_gif.resolve())
-    print(fixed_pvd.resolve())
-    print(trained_pvd.resolve())
     print(history_path.resolve())
+    print(replay["path"].resolve())
     print(summary_path.resolve())
     print("## PASS" if passed else "## FAIL")
     return 0 if passed else 1

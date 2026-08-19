@@ -76,11 +76,11 @@ outputs/stage_h4/*
 !outputs/showcase/
 outputs/showcase/*
 !outputs/showcase/large_fem_setup.png
-!outputs/showcase/optimization_history.png
+!outputs/showcase/optimization_history_500.png
 !outputs/showcase/held_out_improvement.png
 !outputs/showcase/representative_response.png
-!outputs/showcase/fixed_vs_mlp_deformation.gif
-!outputs/showcase/optimization_progress.gif
+!outputs/showcase/fixed_vs_final_deformation.gif
+!outputs/showcase/optimization_all_iterations.gif
 
 # Model / checkpoint files
 *.ckpt
@@ -145,3 +145,6 @@ docker-compose.override.yml
 
 # Local agent instructions
 AGENTS.md
+
+# Recoverable local cleanup
+.trash/
