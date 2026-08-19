@@ -88,6 +88,15 @@ outputs/showcase/*
 outputs/engineering_probe/*
 !outputs/engineering_probe/probe_results.json
 
+# Resonant low-damping engineering-showcase media
+!outputs/engineering_showcase/
+outputs/engineering_showcase/*
+!outputs/engineering_showcase/held_out_distribution.png
+!outputs/engineering_showcase/representative_response.png
+!outputs/engineering_showcase/cumulative_vibration.png
+!outputs/engineering_showcase/optimization_all_iterations.gif
+!outputs/engineering_showcase/initial_vs_optimized_deformation.gif
+
 # Model / checkpoint files
 *.ckpt
 *.pth

@@ -184,6 +184,31 @@ At contacts A and B, Initial has `11/11` and `15/15` STICK-to-SLIP/SLIP-to-STICK
 
 ![Representative displacement and iteration-500 preload](./outputs/showcase/representative_response.png)
 
+## Low-damping resonant showcase
+
+This separate case uses **a pre-selected low-damping near-resonance showcase condition with larger passive vibration and stronger preload sensitivity**. The operating point was fixed before training at `c=0.10`, `r1=1.00`, and `r2=1.35`; its 32-seed passive objective (`0.01006122472`) is `31.336%` above the scientific benchmark. The bounded probe also changed the objective by `+138.463%` at `N=0.02` and `+10.154%` at `N=0.06` relative to `N=0.04`.
+
+The MLP was then trained from its original initialization for 500 Adam updates at `lr=0.1`. No checkpoint selection or rollback was used: iteration 495 reached the minimum training objective (`0.007815956840`), but all results below use iteration 500.
+
+| Result | Initial | Iteration 500 | Relative change |
+| --- | ---: | ---: | ---: |
+| 32-seed train objective | `0.01006122472` | `0.007818628612` | `-22.2895%` |
+| 64-seed held-out objective | `0.009676363882` | `0.009122035028` | `-5.7287%` |
+
+The held-out median per-seed improvement is `6.4773%`, with 44 of 64 unseen seeds improving. Under the predeclared classification this is a **Weak** result: the resonant case creates more training control authority, but the iteration-500 policy transfers only a modest aggregate improvement to new forcing histories. Negative held-out cases remain visible in the distribution.
+
+![Initial and iteration-500 deformation in the resonant case](./outputs/engineering_showcase/initial_vs_optimized_deformation.gif)
+
+![Held-out resonant-case objective and improvement distributions](./outputs/engineering_showcase/held_out_distribution.png)
+
+The median-rule representative is seed `1053`, with `6.2285%` improvement. Initial A/B transition counts are `10/9` and `12/11` for STICK-to-SLIP/SLIP-to-STICK; iteration 500 changes them to `5/5` and `12/11`.
+
+![Representative resonant-case displacement and preload](./outputs/engineering_showcase/representative_response.png)
+
+![Representative running mean-square displacement](./outputs/engineering_showcase/cumulative_vibration.png)
+
+[View all 501 optimizer states](./outputs/engineering_showcase/optimization_all_iterations.gif). The 500-step training took `2161.79 s` on the same Mac CPU; held-out evaluation took `1.51 s`.
+
 ## Reproduce
 
 Python 3.12 and [uv](https://docs.astral.sh/uv/) are required.

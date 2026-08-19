@@ -11,8 +11,17 @@ from tesseract_core.runtime import (
     ShapeDType,
 )
 
-if os.environ.get("STICK_SLIP_FEM_VARIANT") == "showcase":
+variant = os.environ.get("STICK_SLIP_FEM_VARIANT")
+
+if variant == "showcase":
     from stochastic_stick_slip.showcase import (
+        NUM_STEPS,
+        crn_fd_coefficient_jacobian,
+        crn_fd_controlled_q_jacobian,
+        evaluate_controlled_batch,
+    )
+elif variant == "engineering_showcase":
+    from stochastic_stick_slip.engineering_showcase import (
         NUM_STEPS,
         crn_fd_coefficient_jacobian,
         crn_fd_controlled_q_jacobian,
