@@ -163,23 +163,24 @@ The animation replays every saved controller state from iteration 0 through 500.
 
 ### Held-out stochastic response
 
-The iteration-500 controller was evaluated once on 64 seeds that were absent from training.
+The controller was evaluated on 64 stochastic realizations that were absent from optimization. Initial (iteration 0) is the zero-output controller and exactly reproduces the fixed preload baseline, \(N(t)=0.04\). After 500 end-to-end gradient updates, the held-out objective distribution shifts toward lower values.
 
-| Metric | Fixed | Iteration-500 MLP |
+![Initial and optimized held-out objective and improvement distributions](./outputs/showcase/held_out_distribution.png)
+
+| Statistic | Initial (iter 0) | Iteration 500 |
 | --- | ---: | ---: |
-| Mean objective | `0.007484088872760848` | `0.006607333975056811` |
-| Mean reduction | `0%` | `11.7149%` |
-| Per-seed wins | | `49 / 64` |
+| Mean objective | `0.007484088873` | `0.006607333975` |
+| Median objective | `0.007587485375` | `0.006336398393` |
+| Q25 | `0.006978819622` | `0.005541730648` |
+| Q75 | `0.007938605854` | `0.007309675240` |
 
-The figure retains all 64 seeds; 15 have negative improvement.
-
-![Per-seed held-out improvement relative to the fixed preload](./outputs/showcase/held_out_improvement.png)
+The optimized controller lowers the mean held-out objective by `11.7149%`. The median per-seed improvement is `16.0646%`, and 49 of 64 unseen realizations improve. The figure retains the other 15 cases: optimization improves the stochastic objective in aggregate rather than guaranteeing improvement for every forcing realization.
 
 ### Representative response
 
-The fixed median rule selected seed `1040`: its `15.7343%` improvement is closest to the 64-seed median of `16.0646%`. Some controlled displacement peaks exceed the Fixed trace, while the time-averaged squared response is lower.
+The fixed median rule selected seed `1040`: its `15.7343%` improvement is closest to the 64-seed median of `16.0646%`. This is the representative realization shown below, not a best-case trajectory. Some controlled displacement peaks exceed the Initial trace, while the time-averaged squared response is lower.
 
-At contacts A and B, the Fixed controller has `11/11` and `15/15` STICK-to-SLIP/SLIP-to-STICK events. The trained controller has `15/15` events at both contacts. The controller changes the event sequence without eliminating hard switching.
+At contacts A and B, Initial has `11/11` and `15/15` STICK-to-SLIP/SLIP-to-STICK events. Iteration 500 has `15/15` events at both contacts. The controller changes the event sequence without eliminating hard switching.
 
 ![Representative displacement and iteration-500 preload](./outputs/showcase/representative_response.png)
 

@@ -78,6 +78,7 @@ outputs/showcase/*
 !outputs/showcase/large_fem_setup.png
 !outputs/showcase/optimization_history_500.png
 !outputs/showcase/held_out_improvement.png
+!outputs/showcase/held_out_distribution.png
 !outputs/showcase/representative_response.png
 !outputs/showcase/fixed_vs_final_deformation.gif
 !outputs/showcase/optimization_all_iterations.gif

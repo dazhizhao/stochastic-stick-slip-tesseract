@@ -357,6 +357,8 @@ def _configure_style():
         {
             "font.family": "sans-serif",
             "font.sans-serif": ["Arial", "Helvetica", "DejaVu Sans"],
+            "svg.fonttype": "none",
+            "pdf.fonttype": 42,
             "font.size": 10,
             "axes.labelsize": 11,
             "axes.linewidth": 1.1,
@@ -437,20 +439,136 @@ def plot_optimization_history(history):
     return path
 
 
-def plot_held_out_improvement(relative_improvement):
-    percent = 100.0 * relative_improvement
-    colors = np.where(percent >= 0.0, MLP_COLOR, ACCENT_COLOR)
-    fig, axis = plt.subplots(figsize=(8.0, 4.3), constrained_layout=True)
-    axis.axhline(0.0, color=FRAME_COLOR, lw=1.0)
-    axis.vlines(H4_TEST_SEEDS, 0.0, percent, color=colors, lw=1.2)
-    axis.scatter(H4_TEST_SEEDS, percent, color=colors, s=19, zorder=3)
-    axis.set(xlabel="Held-out seed", ylabel="Improvement (%)")
-    axis.set_xticks(H4_TEST_SEEDS[::8])
-    _style_axis(axis)
-    path = OUTPUT_DIRECTORY / "held_out_improvement.png"
+def _held_out_statistics(initial_losses, optimized_losses):
+    initial = np.asarray(initial_losses, dtype=np.float64)
+    optimized = np.asarray(optimized_losses, dtype=np.float64)
+    if initial.shape != (64,) or optimized.shape != (64,):
+        raise ValueError("held-out distributions must each contain 64 losses")
+    improvement = 100.0 * (initial - optimized) / initial
+    initial_q25, initial_median, initial_q75 = np.quantile(initial, [0.25, 0.5, 0.75])
+    optimized_q25, optimized_median, optimized_q75 = np.quantile(
+        optimized, [0.25, 0.5, 0.75]
+    )
+    return {
+        "initial_mean": float(np.mean(initial)),
+        "initial_median": float(initial_median),
+        "initial_q25": float(initial_q25),
+        "initial_q75": float(initial_q75),
+        "optimized_mean": float(np.mean(optimized)),
+        "optimized_median": float(optimized_median),
+        "optimized_q25": float(optimized_q25),
+        "optimized_q75": float(optimized_q75),
+        "mean_objective_reduction": float(
+            100.0 * (np.mean(initial) - np.mean(optimized)) / np.mean(initial)
+        ),
+        "mean_seed_improvement": float(np.mean(improvement)),
+        "median_seed_improvement": float(np.median(improvement)),
+        "improved_count": int(np.count_nonzero(improvement > 0.0)),
+        "improvement": improvement,
+    }
+
+
+def plot_held_out_distribution(initial_losses, optimized_losses):
+    initial = np.asarray(initial_losses, dtype=np.float64)
+    optimized = np.asarray(optimized_losses, dtype=np.float64)
+    statistics = _held_out_statistics(initial, optimized)
+    improvement = statistics["improvement"]
+
+    fig, axes = plt.subplots(
+        1, 2, figsize=(7.2, 3.4), constrained_layout=True,
+        gridspec_kw={"width_ratios": [1.0, 1.12]},
+    )
+    violin = axes[0].violinplot(
+        [initial, optimized], positions=[0, 1], widths=0.68, showextrema=False
+    )
+    for body, color in zip(violin["bodies"], [FIXED_COLOR, MLP_COLOR]):
+        body.set_facecolor(color)
+        body.set_edgecolor(color)
+        body.set_alpha(0.22)
+        body.set_linewidth(1.0)
+    box = axes[0].boxplot(
+        [initial, optimized], positions=[0, 1], widths=0.22,
+        patch_artist=True, showfliers=False,
+        boxprops={"edgecolor": FRAME_COLOR, "linewidth": 1.1},
+        whiskerprops={"color": FRAME_COLOR, "linewidth": 1.0},
+        capprops={"color": FRAME_COLOR, "linewidth": 1.0},
+        medianprops={"color": FRAME_COLOR, "linewidth": 1.5},
+    )
+    for patch, color in zip(box["boxes"], [FIXED_COLOR, MLP_COLOR]):
+        patch.set_facecolor(color)
+        patch.set_alpha(0.42)
+    jitter = 0.085 * np.sin(np.arange(initial.size) * 2.399963229728653)
+    axes[0].scatter(
+        jitter, initial, s=13, color=FIXED_COLOR, alpha=0.62,
+        edgecolor="none", zorder=3,
+    )
+    axes[0].scatter(
+        1.0 + jitter, optimized, s=13, color=MLP_COLOR, alpha=0.62,
+        edgecolor="none", zorder=3,
+    )
+    axes[0].set(
+        xticks=[0, 1], xticklabels=["Initial\n(iter 0)", "Optimized\n(iter 500)"],
+        ylabel="Mean-square displacement",
+    )
+    axes[0].text(
+        0.04, 0.97,
+        f"Mean objective: -{statistics['mean_objective_reduction']:.1f}%\n"
+        f"{statistics['improved_count']}/64 improved",
+        transform=axes[0].transAxes, ha="left", va="top",
+        color=FRAME_COLOR, fontsize=8,
+    )
+
+    bin_width = 5.0
+    lower = bin_width * np.floor(np.min(improvement) / bin_width)
+    upper = bin_width * np.ceil(np.max(improvement) / bin_width)
+    edges = np.arange(lower, upper + bin_width, bin_width)
+    counts, _ = np.histogram(improvement, bins=edges)
+    colors = [ACCENT_COLOR if left < 0.0 else MLP_COLOR for left in edges[:-1]]
+    axes[1].bar(
+        edges[:-1], counts, width=np.diff(edges), align="edge",
+        color=colors, edgecolor="white", linewidth=0.8,
+    )
+    axes[1].axvline(0.0, color=FRAME_COLOR, lw=1.2)
+    axes[1].set(
+        xlim=(edges[0], edges[-1]), xlabel="Relative improvement (%)",
+        ylabel="Held-out seeds",
+    )
+    axes[1].text(
+        0.97, 0.97,
+        f"Median: +{statistics['median_seed_improvement']:.1f}%",
+        transform=axes[1].transAxes, ha="right", va="top",
+        color=FRAME_COLOR, fontsize=8,
+    )
+
+    for label, axis in zip(("a", "b"), axes):
+        _style_axis(axis)
+        axis.tick_params(top=False, right=False)
+        axis.text(
+            -0.13, 1.04, label, transform=axis.transAxes,
+            fontsize=11, fontweight="bold", va="top",
+        )
+    path = OUTPUT_DIRECTORY / "held_out_distribution.png"
     fig.savefig(path, dpi=300, bbox_inches="tight")
     plt.close(fig)
-    return path
+    return path, statistics
+
+
+def plot_saved_held_out_distribution() -> int:
+    _configure_style()
+    summary_path = OUTPUT_DIRECTORY / "showcase_summary.json"
+    summary = json.loads(summary_path.read_text())
+    path, statistics = plot_held_out_distribution(
+        summary["test_fixed_losses"], summary["test_iteration_500_losses"]
+    )
+    for key in (
+        "initial_mean", "initial_median", "initial_q25", "initial_q75",
+        "optimized_mean", "optimized_median", "optimized_q25", "optimized_q75",
+        "mean_objective_reduction", "mean_seed_improvement",
+        "median_seed_improvement", "improved_count",
+    ):
+        print(f"{key}: {statistics[key]:.16g}")
+    print(path.resolve())
+    return 0
 
 
 def plot_representative_response(replay):
@@ -634,9 +752,10 @@ def main() -> int:
     test_improvement = (fixed_test_objective - trained_test_objective) / fixed_test_objective
     win_count = int(np.count_nonzero(trained_test.losses < fixed_test.losses))
     replay = replay_representative(controller, history, fixed_test, trained_test)
+    held_out_path, _ = plot_held_out_distribution(fixed_test.losses, trained_test.losses)
     figure_paths = [
         plot_large_fem_setup(), plot_optimization_history(history),
-        plot_held_out_improvement(replay["relative_improvement"]), plot_representative_response(replay),
+        held_out_path, plot_representative_response(replay),
     ]
     gif_start = time.perf_counter()
     optimizer_gif = create_all_iterations_gif(history, replay)
@@ -731,4 +850,8 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    if sys.argv[1:] == ["--held-out-plot-only"]:
+        raise SystemExit(plot_saved_held_out_distribution())
+    if sys.argv[1:]:
+        raise SystemExit("usage: run_showcase.py [--held-out-plot-only]")
     raise SystemExit(main())
