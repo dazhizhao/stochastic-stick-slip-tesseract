@@ -1,310 +1,246 @@
-# Stochastic Stick-Slip Vibration Suppression with Tesseract
+# End-to-End Stochastic Stick-Slip Vibration Control with Tesseract
 
-A small Mac-native mechanics demo in which a PyTorch controller learns a
-seed-dependent friction preload through a low-dimensional Fourier interface.
-The structural response uses JAX-FEM, the contact law keeps exact hard
-STICK/SLIP switching, and Tesseract composes the different gradient systems.
+A PyTorch controller learns a seed-conditioned friction preload through a JAX-FEM model with two hard stick-slip contacts.
 
-The central design choice is deliberate: finite differences never touch the
-MLP weights. They only see five Fourier coefficients for each stochastic seed.
-PyTorch autograd handles the high-dimensional network parameters, while a
-common-random-number (CRN) finite difference handles the non-smooth stochastic
-mechanics boundary.
+Built for the [Tesseract Hackathon 2026](https://pasteurlabs.ai/tesseract-hackathon-2026/), track: **Hybrid ML + Mechanistic Models**.
 
 ![Fixed and iteration-500 deformation under identical visualization settings](./outputs/showcase/fixed_vs_final_deformation.gif)
 
-![All 501 optimizer states from iteration 0 through 500](./outputs/showcase/optimization_all_iterations.gif)
+| FEM model | Neural controller | Mechanics interface | Optimization | Held-out result |
+| --- | --- | --- | --- | --- |
+| 320 free DOF | 469 parameters | 5 Fourier coefficients | 500 Adam iterations, 24.09% train reduction | 11.71% reduction, 49/64 wins |
 
-## Final showcase
+## The engineering problem
 
-The final Hackathon run applies the unchanged H5 method to a `32×4 QUAD4`
-cantilever with 128 elements, 165 nodes and 320 free DOF. Its 469-parameter MLP
-crosses the non-smooth mechanics boundary through only five Fourier
-coefficients per seed. Training uses 32 stochastic seeds, four fixed 8-seed
-Tesseract batches per update, and exactly 500 Adam iterations at `lr=0.01`.
-The reported model is iteration 500, not a selected best checkpoint; all 501
-controller states are retained in the local reproducible history.
+The benchmark is a stochastic two-dimensional cantilever with two hard Jenkins friction contacts. Random amplitudes and phases produce a different harmonic load history for each seed. A semi-active controller varies the shared contact preload \(N(t)\), which changes both the friction threshold and the timing of STICK/SLIP transitions.
 
-| quantity | result |
-| --- | ---: |
-| free structural DOF | `320` |
-| neural parameters / FD interface | `469 / 5` |
-| training / held-out seeds | `32 / 64` |
-| fixed Adam iterations | `500` |
-| train objective, iteration 0 | `0.007660674831379117` |
-| train objective, iteration 100 | `0.006120562168107167` |
-| train objective, iteration 500 | `0.005815166249899522` |
-| train reduction, iteration 500 | `24.0907%` |
-| held-out Fixed objective, 64 seeds | `0.007484088872760848` |
-| held-out iteration-500 MLP objective | `0.006607333975056811` |
-| held-out reduction | `11.7149%` |
-| held-out wins | `49 / 64` |
-| gradient norm, first / final update | `1.49593e-3 / 3.87344e-5` |
-| final preload range | `[0.0200000, 0.0600000]` |
-| 500-step training time | `2230.45 s` on Mac CPU |
+For seed ξ, the loss is the time-averaged squared vertical displacement at the observation point:
 
-The training objective at iterations 200, 300 and 400 is respectively
-`0.005927553526808955`, `0.005872205536044466` and
-`0.005837709606220919`. The minimum is the reported iteration-500 value, so
-this run continued to improve after iteration 100 without checkpoint rollback.
+$$
+L(\theta;\xi)=\frac{1}{T}\sum_{t=1}^{T} x_{\mathrm{obs}}(t;\theta,\xi)^2,
+\qquad
+J(\theta)=\frac{1}{n}\sum_{i=1}^{n}L(\theta;\xi_i).
+$$
 
-The fixed 32-seed baseline produced `257/252` STICK→SLIP/SLIP→STICK
-transitions at contact A and `435/422` at contact B. After training, the
-64-seed held-out set produced `849/841` transitions at A and `1086/1067` at B,
-so the controller reduces vibration without removing the hard switching that
-motivates the mixed-gradient boundary.
+The controller minimizes expected vibration energy over stochastic forcing histories. Because the objective averages squared displacement over time, the controlled trace can exceed the Fixed trace at individual instants. The model is a nondimensional mechanics benchmark; its results do not represent a validated building, aircraft, or experimental control system.
 
-The representative visualization seed is `1040`, chosen automatically because
-its `15.7343%` improvement is closest to the 64-seed median of `16.0646%`.
-For this seed, contact A/B transition counts change from `11/11` and `15/15`
-STICK→SLIP/SLIP→STICK events under Fixed control to `15/15` and `15/15` at
-iteration 500. Fixed and trained frames use the same seed, physical time,
-deformation scale, coordinate limits and displacement color range.
+## Why this is a difficult gradient problem
 
-![Large 32x4 FEM setup](./outputs/showcase/large_fem_setup.png)
+The controller has 469 trainable PyTorch parameters. Those parameters are smooth and belong in autograd. The mechanics contains exact hard projections between STICK, SLIP+, and SLIP- regimes. A perturbation can change a transition time, the number of transitions, or the subsequent trajectory, so the mechanics boundary needs a gradient rule that preserves event switching.
 
-![Objective over 500 fixed Adam iterations](./outputs/showcase/optimization_history_500.png)
+A direct centered finite difference over the neural weights would require 938 perturbed evaluations per gradient. The Fourier representation compresses each seed's control to five coefficients. PyTorch differentiates the network, while common-random-number centered finite differences handle the nonsmooth mechanics interface.
 
-![Held-out improvement over 64 new seeds](./outputs/showcase/held_out_improvement.png)
+## Why Tesseract?
 
-![Representative displacement and iteration-500 preload](./outputs/showcase/representative_response.png)
+Tesseract separates both a framework boundary and a derivative-strategy boundary:
 
-## Pipeline
+| Component | Framework | Input → output | Derivative rule |
+| --- | --- | --- | --- |
+| `fourier_controller` | PyTorch | `theta[469]`, `descriptors[8,6]` → `coeffs[8,5]` | PyTorch autograd VJP |
+| `stick_slip_fem` | JAX/JAX-FEM | `q[2]`, `coeffs[8,5]`, `seeds[8]` → `seed_losses[8]` | CRN centered-FD VJP |
+| Host | PyTorch | `seed_losses[8]` → scalar mean | `torch.mean` and `loss.backward()` |
 
 ```text
-trainable theta [469]       forcing descriptors [8,6]
-          │                           │
-          └─────────────┬─────────────┘
-                        ▼
-┌────────────────────────────────────────────────────┐
-│ fourier_controller Tesseract                       │
-│ PyTorch MLP: 6 → 16 → 16 → 5                      │
-│ gradient: PyTorch autograd VJP with respect to theta│
-└───────────────────────┬────────────────────────────┘
-                        │ Fourier coefficients [8,5]
-                        ▼
-┌────────────────────────────────────────────────────┐
-│ stick_slip_fem Tesseract                           │
-│ JAX/JAX-FEM + two hard Jenkins contacts            │
-│ gradient: CRN-centered finite-difference VJP        │
-└───────────────────────┬────────────────────────────┘
-                        │ seed losses [8]
-                        ▼
-                 torch.mean(seed losses)
-                        │
-                        ▼
-                   loss.backward()
-                        │
-                        ▼
-                 gradient of theta [469]
+theta [469]            forcing descriptors [8,6]
+      \                         /
+       +-----------------------+
+                   |
+                   v
+       +--------------------------+
+       | fourier_controller       |
+       | PyTorch MLP 6->16->16->5 |
+       | autograd VJP             |
+       +-------------+------------+
+                     | coeffs [8,5]
+                     v
+       +--------------------------+
+       | stick_slip_fem           |
+       | JAX-FEM + hard Jenkins   |
+       | CRN centered-FD VJP      |
+       +-------------+------------+
+                     | seed losses [8]
+                     v
+              torch.mean(...)
+                     |
+                     v
+               loss.backward()
+                     |
+                     v
+              dJ/dtheta [469]
 ```
 
-The controller and mechanics are the two core Tesseracts. The older
-`stochastic_objective` mean component remains available for H1–H4 compatibility,
-but the main pipeline now computes the mean directly in host PyTorch.
+**Two Tesseracts. Two frameworks. Two derivative rules. One end-to-end gradient.**
 
-For H2, the physics Tesseract receives fixed `q=(c,N_base)=(0.2,0.04)` and
-the MLP produces
+Each Tesseract owns the derivative rule appropriate to its implementation. The host would otherwise have to maintain a manual PyTorch/JAX bridge and wire the mechanics finite-difference VJP back into the network.
 
-```text
-z = [a0, a1, b1, a2, b2]
-s(t) = a0 + a1 cos(w1 t) + b1 sin(w1 t)
-     + a2 cos(w2 t) + b2 sin(w2 t)
-N(t) = 0.04 + 0.02 tanh(s(t))
-```
+## Method
 
-where `w1=0.9ω1` and `w2=1.35ω1` are the two existing forcing frequencies.
-The coefficient Jacobian is evaluated in five batched columns: one positive
-and one negative forward for each column, using the same seed on both sides
-(10 batch forwards total for `[8,5]`). No FFT, dynamic top-K mode selection,
-or finite difference over network weights is used.
+### Neural Fourier control
 
-## Validated baseline and showcase
+The controller is a CPU/Float64 MLP with architecture `6 -> 16 -> 16 -> 5`. Its six inputs describe the two random forcing amplitudes and phases. For each seed it emits
 
-- H1–H5 baseline: 16×2 `QUAD4`, 32 elements and 96 free DOF;
-- final showcase: 32×4 `QUAD4`, 128 elements and 320 free DOF;
-- two independent hard Jenkins contacts on the lower surface;
-- exact STICK/SLIP regime projection and slider updates;
-- the existing 800-step integration, stochastic forcing and displacement-only loss;
-- 32 fixed training seeds and one disjoint 64-seed held-out set.
+$$
+z=[a_0,a_1,b_1,a_2,b_2].
+$$
 
-## Results
+The coefficients define the bounded preload
 
-### Stage H5 — two core Tesseracts
+$$
+\begin{aligned}
+s(t) &= a_0+a_1\cos(\omega_a t)+b_1\sin(\omega_a t) \\
+     &\quad+a_2\cos(\omega_b t)+b_2\sin(\omega_b t),\\
+N(t) &= 0.04+0.02\tanh(s(t)),
+\end{aligned}
+$$
 
-H5 moves the unchanged PyTorch controller behind a real Tesseract boundary.
-The flat 469-parameter vector is differentiated by PyTorch autograd inside the
-controller component; only five Fourier coefficients per seed cross into the
-hard stochastic mechanics component, where the existing CRN finite difference
-provides the VJP.
+with \(\omega_a=0.9\omega_1\) and \(\omega_b=1.35\omega_1\). These five fixed modes provide a compact control surface. Training uses this basis directly, without an FFT or dynamic mode selection.
 
-| quantity | result |
-| --- | ---: |
-| controller forward maximum absolute error | `0` |
-| controller VJP maximum absolute error | `0` |
-| controller VJP direction cosine | `1` |
-| end-to-end theta gradient norm | `0.001616181727698509` |
-| H5 32-seed training objective | `0.006108705858227541` |
-| H5 64-seed test objective | `0.005971312227273379` |
-| train/test delta from H4 | `0 / 0` |
+Each centered coefficient gradient uses one positive and one negative 8-seed batch forward per column. The mechanics VJP therefore costs 10 batch forwards, independent of the 469 neural parameters.
 
-The complete `theta → controller Tesseract → physics Tesseract → mean →
-backward` chain reproduces H4 exactly while keeping finite differences away
-from all 469 MLP parameters.
+### Hard stick-slip mechanics
 
-### Stage H4 — more stochastic training coverage
+JAX-FEM assembles the structural stiffness, consistent mass, and distributed boundary load. The final mesh has 128 `QUAD4` elements, 165 nodes, 330 total DOF, and 320 free DOF after the left boundary is fixed.
 
-H4 changes only the stochastic training coverage: the original eight seeds are
-augmented with seeds `201..224`, giving 32 training seeds. The physics,
-controller architecture, initialization, optimizer and 20-step budget remain
-unchanged. Evaluation uses 64 new seeds, `1001..1064`, exactly once after
-training.
+Two Jenkins contacts act on lower-surface vertical DOFs at `x/L=0.6875` and `x/L=0.9375`. Each contact retains its own slider and regime state. At every time step, the solver enumerates the nine coupled regimes and selects the first state satisfying the exact stick-force and slip-direction conditions. The contact projection remains hard in the forward model.
 
-| controller | 32-seed training objective | improvement vs fixed | 64-seed test objective | improvement vs fixed |
+### Common random numbers
+
+For coefficient \(z_k\), the physics component estimates
+
+$$
+\frac{\partial J}{\partial z_k}
+\approx
+\frac{J(z+\varepsilon e_k;\,\xi)-J(z-\varepsilon e_k;\,\xi)}{2\varepsilon}.
+$$
+
+The positive and negative evaluations use the same forcing seeds. In five fixed H3 repeats, the mean cosine to the CRN mean gradient direction was `0.976504`. Using independent negative-side seeds reduced it to `0.209988`.
+
+## Does each part matter?
+
+### Shared waveform versus the MLP
+
+H4 changed only the number of training seeds from 8 to 32. Fixed preload, one shared five-coefficient waveform, and the seed-conditioned MLP were then evaluated on 64 new seeds.
+
+| Controller | 32-seed train objective | Improvement vs Fixed | 64-seed test objective | Improvement vs Fixed |
 | --- | ---: | ---: | ---: | ---: |
-| Fixed | `0.006504099115381487` | — | `0.006348314853437941` | — |
+| Fixed | `0.006504099115381487` | `0%` | `0.006348314853437941` | `0%` |
 | Shared Fourier | `0.006288536550850767` | `3.3143%` | `0.006147424838351543` | `3.1645%` |
 | MLP Fourier | `0.006108705858227541` | `6.0791%` | `0.005971312227273379` | `5.9386%` |
 
-This is **Case A / STRONG PASS**. The MLP test objective is `2.8648%` lower
-than the retrained Shared controller. On the 64 held-out seeds, Shared beats
-Fixed on 58, MLP beats Fixed on 62, and MLP beats Shared on 52. The MLP
-train–test improvement gap is only `0.1405` percentage points, compared with
-about `13.33` percentage points in H3. Increasing stochastic training coverage
-therefore resolves the observed H3 generalization gap without changing the
-network or mechanics.
+The MLP test objective was `2.8648%` lower than the Shared controller and won on 52 of 64 seeds in that comparison. The descriptor-conditioned network learns control beyond a single global waveform.
 
-![H4 per-seed generalization](./outputs/stage_h4/per_seed_generalization.png)
+### A useful failure: eight training seeds
 
-![H4 full-batch training histories](./outputs/stage_h4/training_objective_history.png)
+The earlier H3 MLP reduced its 8-seed training objective by `13.1509%`, then increased the 32-seed test objective by `0.1833%`. It won against the Fixed controller on only 16 of 32 unseen seeds. The same architecture trained on 32 seeds later reduced the 64-seed test objective by `5.9386%`.
 
-### Stage H3 — ablation and 32-seed generalization
+This sequence isolates the source of the H3 failure: the seed-conditioned network had more fitting capacity than eight stochastic histories could support. Held-out evaluation occurred once, after training, and played no role in model selection or optimizer settings.
 
-H3 compares the fixed preload against a single shared Fourier waveform and the
-seed-conditioned MLP, with all physics and training settings frozen from H2.
-Both trainable controllers use Adam at `lr=0.01` for exactly 20 steps.
+## Results
 
-| controller | 8-seed training objective | change vs fixed | 32-seed test objective | change vs fixed |
-| --- | ---: | ---: | ---: | ---: |
-| Fixed | `0.006642794744366401` | — | `0.006457748776761722` | — |
-| Shared Fourier | `0.006336030858525896` | `-4.6180%` | `0.006305103508254330` | `-2.3638%` |
-| MLP Fourier | `0.005769207113962147` | `-13.1509%` | `0.006469585300535207` | `+0.1833%` |
+### 320-DOF FEM
 
-The shared controller improved 27 of 32 unseen seeds, while the MLP improved
-16 of 32 and beat the shared controller on 14. The MLP therefore has clear
-extra fitting capacity on the eight training seeds, but that advantage did not
-generalize in this fixed experiment. No held-out result was used to retrain or
-tune either controller.
+The showcase scales the validated H5 pipeline from a 16x2 mesh to a 32x4 mesh. The physics, controller, optimizer, Fourier interface, hard contact law, and loss remain unchanged.
 
-![Per-seed generalization relative to the fixed preload](./outputs/stage_h3/per_seed_generalization.png)
+![32x4 FEM mesh, boundary condition, loading, contacts, and observation point](./outputs/showcase/large_fem_setup.png)
 
-![Training and 32-seed test objectives](./outputs/stage_h3/train_test_objectives.png)
+### Five hundred optimization iterations
 
-#### Why a neural controller?
+Training uses 32 seeds split into four fixed 8-seed Tesseract batches. Their losses are averaged before one backward pass and one Adam update at `lr=0.01`. The reported controller is the fixed iteration-500 state.
 
-The forcing-conditioned MLP can produce a different waveform for each seed and
-reduces the training objective by a further `8.9460%` relative to one shared
-waveform. H3 also supplies the necessary negative evidence: with only eight
-training seeds, that extra flexibility did not improve the aggregate 32-seed
-test objective. The network is useful adaptive capacity, not an automatic
-generalization guarantee.
+| Iteration | Train objective |
+| ---: | ---: |
+| 0 | `0.007660674831379117` |
+| 100 | `0.006120562168107167` |
+| 500 | `0.005815166249899522` |
 
-#### Why low-dimensional Fourier control?
+Iteration 500 is also the minimum training objective. The full run reduced the objective by `24.0907%` and took `2230.45 s` on a Mac CPU.
 
-The MLP has 469 parameters, so a direct centered finite difference over its
-weights would require 938 perturbed evaluations. The five-column Fourier
-interface needs only 10 batch forwards, after which the Tesseract VJP carries
-the result back through PyTorch. Across five fixed gradient repeats, the mean
-cosine to the CRN mean direction was `0.976504`, compared with `0.209988` when
-the positive and negative perturbations used independent seeds.
+![Training objective over 500 Adam iterations](./outputs/showcase/optimization_history_500.png)
 
-### Stage H2 — PyTorch Fourier controller
+The animation replays every saved controller state from iteration 0 through 500. The axes stay fixed so the waveform and response remain directly comparable.
 
-The native Mac CPU/Float64 run passed.
+![All 501 optimizer states from iteration 0 through 500](./outputs/showcase/optimization_all_iterations.gif)
 
-| quantity | result |
-| --- | ---: |
-| fixed objective `J_fixed` | `0.006642794744366401` |
-| zero-initialized MLP `J_initial` | `0.006642794744366401` |
-| first accepted Adam learning rate | `0.01` |
-| objective after first real hard step | `0.006570569575355878` |
-| objective after 20 steps `J_final` | `0.005769207113962147` |
-| training reduction | `13.1509%` |
-| held-out fixed objective | `0.006385067389503073` |
-| held-out trained objective | `0.006199324621437767` |
-| held-out reduction | `2.9090%` |
-| trained `N(t)` range | `[0.0200217, 0.0597595]` |
+### Held-out stochastic response
 
-The initial zero last layer reproduces the fixed `N=0.04` baseline exactly.
-After training, the eight seeds receive genuinely different controls: the
-maximum pairwise distance between coefficient rows is `2.62153`, and the
-maximum pairwise RMS difference between their preload histories is `0.0215773`.
-This is the intended role of the forcing descriptor: the network does not
-collapse to one shared preload waveform.
+The iteration-500 controller was evaluated once on 64 seeds that were absent from training.
 
-The held-out result is reported once, after training, and is not used for any
-model or learning-rate choice.
+| Metric | Fixed | Iteration-500 MLP |
+| --- | ---: | ---: |
+| Mean objective | `0.007484088872760848` | `0.006607333975056811` |
+| Mean reduction | `0%` | `11.7149%` |
+| Per-seed wins | | `49 / 64` |
 
-![Fixed and learned preload and representative displacement](./outputs/stage_h2/fourier_controlled_response.png)
+The figure retains all 64 seeds; 15 have negative improvement.
 
-![Training objective over 20 Adam steps](./outputs/stage_h2/training_objective.png)
+![Per-seed held-out improvement relative to the fixed preload](./outputs/showcase/held_out_improvement.png)
 
-### Stage H1.5 — two-parameter baseline
+### Representative response
 
-The preceding public baseline also passes: all eight seeds show complete
-STICK→SLIP→STICK cycles at both contact locations, and the first CRN-FD descent
-step reduced `J` by `1.1484%`. Five accepted hard-forward steps gave a total
-reduction of `4.5074%`.
+The fixed median rule selected seed `1040`: its `15.7343%` improvement is closest to the 64-seed median of `16.0646%`. Some controlled displacement peaks exceed the Fixed trace, while the time-averaged squared response is lower.
 
-![H1.5 mesh, contacts and representative response](./outputs/stage_h15/mesh_and_two_contact_response.png)
+At contacts A and B, the Fixed controller has `11/11` and `15/15` STICK-to-SLIP/SLIP-to-STICK events. The trained controller has `15/15` events at both contacts. The controller changes the event sequence without eliminating hard switching.
 
-![H1.5 objective history](./outputs/stage_h15/objective_history.png)
+![Representative displacement and iteration-500 preload](./outputs/showcase/representative_response.png)
 
-## Reproduce locally
+## Reproduce
+
+Python 3.12 and [uv](https://docs.astral.sh/uv/) are required.
+
+### Quick two-Tesseract verification
+
+This run checks the controller forward/VJP, the physics boundary, end-to-end `loss.backward()`, and the 20-step H5 regression.
 
 ```bash
 uv sync
 uv run pytest -q
-uv run python scripts/run_stage_h15.py
-uv run python scripts/run_stage_h2.py
-uv run python scripts/run_stage_h3.py
-uv run python scripts/run_stage_h4.py
 uv run python scripts/run_stage_h5.py
+```
+
+### Full showcase
+
+```bash
 uv run python scripts/run_showcase.py
 ```
 
-The test suite currently reports 23 passing tests. Two complete H3 runs with
-the same Torch and forcing seeds produced identical objectives, controller
-coefficients, per-seed comparisons and gradient diagnostics. The runs are
-intentionally local: there is no Docker image, GPU, server, PETSc solve,
-background job or push-time automation required.
+The 500-step Mac CPU run takes about 37 minutes on the development machine. It rebuilds the optimization history and media under `outputs/showcase/`. Git tracks the two GIFs and four PNGs. The runner also regenerates the larger trajectory and checkpoint arrays locally.
 
-## Repository layout
+## Repository structure
 
 ```text
-stochastic_stick_slip/model.py                 JAX-FEM, forcing and hard contact
-stochastic_stick_slip/controller.py            deterministic PyTorch MLP
-tesseracts/fourier_controller/tesseract_api.py PyTorch controller apply/VJP
-tesseracts/stick_slip_fem/tesseract_api.py    physics apply/JVP/VJP
-tesseracts/stochastic_objective/tesseract_api.py
-                                                legacy mean apply/JVP/VJP
-scripts/run_stage_h15.py                       H1.5 baseline runner
-scripts/run_stage_h2.py                        H2 training and diagnostics
-scripts/run_stage_h3.py                        H3 ablation and generalization
-scripts/run_stage_h4.py                        H4 stochastic training coverage
-scripts/run_stage_h5.py                        H5 two-Tesseract regression
-scripts/run_showcase.py                        32x4, 500-step final run and media
-scripts/render_showcase_paraview.py             optional ParaView rendering
-tests/                                          focused physics and composition tests
-outputs/stage_h15/                              H1.5 figures
-outputs/stage_h2/                               H2 figures
-outputs/stage_h3/                               H3 figures
-outputs/stage_h4/                               H4 figures
-outputs/showcase/                               final PNG and GIF media
+stochastic_stick_slip/
+  model.py                    JAX-FEM assembly, forcing, and hard contacts
+  controller.py               deterministic PyTorch MLP
+  showcase.py                 32x4 model binding
+tesseracts/
+  fourier_controller/         PyTorch apply and autograd VJP
+  stick_slip_fem/             physics apply and CRN-FD JVP/VJP
+  stochastic_objective/       legacy H1-H4 compatibility component
+scripts/
+  run_stage_h5.py             quick two-Tesseract regression
+  run_showcase.py             500-step run and visualization
+tests/                        focused physics and composition tests
+outputs/showcase/             final GIF and PNG media
 ```
+
+## Development and ablations
+
+`H1` established a minimal stochastic hard-contact descent step. `H1.5` added the second coupled contact. `H2` connected the Fourier MLP to PyTorch backward. `H3` exposed 8-seed overfitting and measured the CRN advantage. `H4` restored held-out performance with 32 training seeds. `H5` moved the PyTorch controller behind its own Tesseract and reproduced the prior objectives exactly.
+
+The older stage runners and figures remain in the repository so each claim can be reproduced independently.
+
+## Scope and limitations
+
+This is a two-dimensional, nondimensional mechanics benchmark driven by synthetic stochastic harmonic forcing. It uses a Jenkins friction model and a bounded preload command without actuator dynamics. Experimental validation and structure-specific performance assessment remain outside the current scope.
+
+A physical demonstrator would require calibrated material, contact, forcing, sensor, and actuator models before the controller could be assessed experimentally.
+
+## References
+
+1. *Design of semi-active dry friction dampers for steady-state vibration: sensitivity analysis and experimental studies.* Journal of Sound and Vibration 459, 114850 (2019). [doi:10.1016/j.jsv.2019.114850](https://doi.org/10.1016/j.jsv.2019.114850)
+2. *JAX-FEM: A differentiable GPU-accelerated 3D finite element solver for automatic inverse design and mechanistic data science.* Computer Physics Communications 291, 108802 (2023). [doi:10.1016/j.cpc.2023.108802](https://doi.org/10.1016/j.cpc.2023.108802)
+3. *Tesseract Core: Universal, autodiff-native software components for Simulation Intelligence.* Journal of Open Source Software 10(111), 8385 (2025). [doi:10.21105/joss.08385](https://doi.org/10.21105/joss.08385)
 
 ## License
 
-This repository is licensed under Apache-2.0. JAX-FEM is used as an external
-dependency and is distributed under GPL-3.0; no JAX-FEM source is copied into
-this repository.
+This repository is licensed under Apache-2.0. JAX-FEM is an external GPL-3.0 dependency; its source is not copied into this repository.
