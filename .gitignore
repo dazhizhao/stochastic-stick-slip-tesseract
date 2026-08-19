@@ -107,6 +107,11 @@ outputs/direct_ad_ablation/*
 outputs/stochastic_event_probe/*
 !outputs/stochastic_event_probe/ad_vs_fd.png
 
+# Fixed Monte-Carlo Gaussian-smoothing probe
+!outputs/gaussian_smoothing_probe/
+outputs/gaussian_smoothing_probe/*
+!outputs/gaussian_smoothing_probe/gradient_and_optimization.png
+
 # Model / checkpoint files
 *.ckpt
 *.pth
