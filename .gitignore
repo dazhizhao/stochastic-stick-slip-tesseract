@@ -102,6 +102,11 @@ outputs/engineering_showcase/*
 outputs/direct_ad_ablation/*
 !outputs/direct_ad_ablation/direct_ad_vs_crn_fd.png
 
+# Stochastic friction-state gradient probe
+!outputs/stochastic_event_probe/
+outputs/stochastic_event_probe/*
+!outputs/stochastic_event_probe/ad_vs_fd.png
+
 # Model / checkpoint files
 *.ckpt
 *.pth
