@@ -83,6 +83,11 @@ outputs/showcase/*
 !outputs/showcase/fixed_vs_final_deformation.gif
 !outputs/showcase/optimization_all_iterations.gif
 
+# Engineering showcase operating-condition probe
+!outputs/engineering_probe/
+outputs/engineering_probe/*
+!outputs/engineering_probe/probe_results.json
+
 # Model / checkpoint files
 *.ckpt
 *.pth
