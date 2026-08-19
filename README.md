@@ -1,14 +1,16 @@
 # End-to-End Stochastic Stick-Slip Vibration Control with Tesseract
 
-A PyTorch controller learns a seed-conditioned friction preload through a JAX-FEM model with two hard stick-slip contacts.
+A compact benchmark for composing PyTorch autograd with a finite-difference derivative rule around nonsmooth JAX-FEM stick-slip mechanics.
 
 Built for the [Tesseract Hackathon 2026](https://pasteurlabs.ai/tesseract-hackathon-2026/), track: **Hybrid ML + Mechanistic Models**.
 
 ![Fixed and iteration-500 deformation under identical visualization settings](./outputs/showcase/fixed_vs_final_deformation.gif)
 
-| FEM model | Neural controller | Mechanics interface | Optimization | Held-out result |
-| --- | --- | --- | --- | --- |
-| 320 free DOF | 469 parameters | 5 Fourier coefficients | 500 Adam iterations, 24.09% train reduction | 11.71% reduction, 49/64 wins |
+| FEM model | Neural controller | Nonsmooth interface | Mixed gradient |
+| --- | --- | --- | --- |
+| 320 free DOF | 469 parameters | 5 Fourier coefficients | PyTorch autograd VJP + CRN-FD VJP |
+
+The numerical results below show that this gradient composition can train the controller in the present benchmark. They are evidence for the software architecture, not a claim of general control performance.
 
 ## The engineering problem
 
@@ -24,13 +26,13 @@ $$
 
 The controller minimizes expected vibration energy over stochastic forcing histories. Because the objective averages squared displacement over time, the controlled trace can exceed the Fixed trace at individual instants. The model is a nondimensional mechanics benchmark; its results do not represent a validated building, aircraft, or experimental control system.
 
-## Why this is a difficult gradient problem
+## Gradient ownership
 
 The controller has 469 trainable PyTorch parameters. Those parameters are smooth and belong in autograd. The mechanics contains exact hard projections between STICK, SLIP+, and SLIP- regimes. A perturbation can change a transition time, the number of transitions, or the subsequent trajectory, so the mechanics boundary needs a gradient rule that preserves event switching.
 
 A direct centered finite difference over the neural weights would require 938 perturbed evaluations per gradient. The Fourier representation compresses each seed's control to five coefficients. PyTorch differentiates the network, while common-random-number centered finite differences handle the nonsmooth mechanics interface.
 
-## Why Tesseract?
+## Mixed-gradient architecture
 
 Tesseract separates both a framework boundary and a derivative-strategy boundary:
 
@@ -69,7 +71,7 @@ theta [469]            forcing descriptors [8,6]
               dJ/dtheta [469]
 ```
 
-**Two Tesseracts. Two frameworks. Two derivative rules. One end-to-end gradient.**
+Two Tesseracts, two frameworks, and two derivative rules contribute to one end-to-end gradient.
 
 Each Tesseract owns the derivative rule appropriate to its implementation. The host would otherwise have to maintain a manual PyTorch/JAX bridge and wire the mechanics finite-difference VJP back into the network.
 
@@ -127,13 +129,13 @@ H4 changed only the number of training seeds from 8 to 32. Fixed preload, one sh
 | Shared Fourier | `0.006288536550850767` | `3.3143%` | `0.006147424838351543` | `3.1645%` |
 | MLP Fourier | `0.006108705858227541` | `6.0791%` | `0.005971312227273379` | `5.9386%` |
 
-The MLP test objective was `2.8648%` lower than the Shared controller and won on 52 of 64 seeds in that comparison. The descriptor-conditioned network learns control beyond a single global waveform.
+The MLP test objective was `2.8648%` lower than the Shared controller and won on 52 of 64 seeds in this fixed comparison. This supports using the forcing descriptor here, while remaining specific to the chosen seed sets and model.
 
 ### A useful failure: eight training seeds
 
 The earlier H3 MLP reduced its 8-seed training objective by `13.1509%`, then increased the 32-seed test objective by `0.1833%`. It won against the Fixed controller on only 16 of 32 unseen seeds. The same architecture trained on 32 seeds later reduced the 64-seed test objective by `5.9386%`.
 
-This sequence isolates the source of the H3 failure: the seed-conditioned network had more fitting capacity than eight stochastic histories could support. Held-out evaluation occurred once, after training, and played no role in model selection or optimizer settings.
+This sequence is consistent with inadequate stochastic coverage in H3, rather than with a failure of the mixed-gradient interface. It does not establish a general sample-complexity result. Held-out evaluation occurred once, after training, and played no role in model selection or optimizer settings.
 
 ## Results
 
@@ -195,7 +197,7 @@ The MLP was then trained from its original initialization for 500 Adam updates a
 | 32-seed train objective | `0.01006122472` | `0.007818628612` | `-22.2895%` |
 | 64-seed held-out objective | `0.009676363882` | `0.009122035028` | `-5.7287%` |
 
-The held-out median per-seed improvement is `6.4773%`, with 44 of 64 unseen seeds improving. Under the predeclared classification this is a **Weak** result: the resonant case creates more training control authority, but the iteration-500 policy transfers only a modest aggregate improvement to new forcing histories. Negative held-out cases remain visible in the distribution.
+The held-out median per-seed improvement is `6.4773%`, with 44 of 64 unseen seeds improving. Under the predeclared classification this is a **Weak** result: training improves the selected objective substantially, but transfer to new forcing histories is modest. Negative held-out cases remain visible in the distribution.
 
 ![Initial and iteration-500 deformation in the resonant case](./outputs/engineering_showcase/initial_vs_optimized_deformation.gif)
 
