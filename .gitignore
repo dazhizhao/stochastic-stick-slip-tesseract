@@ -97,6 +97,11 @@ outputs/engineering_showcase/*
 !outputs/engineering_showcase/optimization_all_iterations.gif
 !outputs/engineering_showcase/initial_vs_optimized_deformation.gif
 
+# Direct-AD mixed-gradient ablation
+!outputs/direct_ad_ablation/
+outputs/direct_ad_ablation/*
+!outputs/direct_ad_ablation/direct_ad_vs_crn_fd.png
+
 # Model / checkpoint files
 *.ckpt
 *.pth
