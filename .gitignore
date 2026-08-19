@@ -112,6 +112,11 @@ outputs/stochastic_event_probe/*
 outputs/gaussian_smoothing_probe/*
 !outputs/gaussian_smoothing_probe/gradient_and_optimization.png
 
+# Score-function stochastic-event probe
+!outputs/score_function_probe/
+outputs/score_function_probe/*
+!outputs/score_function_probe/score_function_gradient.png
+
 # Model / checkpoint files
 *.ckpt
 *.pth
