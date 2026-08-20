@@ -14,6 +14,14 @@ from wu2019.markov import (
     evaluate_markov,
     uniform_bank,
 )
+from wu2019.state_aware import (
+    INITIAL_STATE_AWARE_COEFFICIENTS,
+    PHASE2_COEFFICIENTS,
+    crn_fd_state_aware,
+    direct_ad_state_aware,
+    evaluate_state_aware,
+    replay_state_aware,
+)
 
 __all__ = [
     "DEFAULT_PARAMETERS",
@@ -22,9 +30,15 @@ __all__ = [
     "WuParameters",
     "constant_normal_force",
     "harmonic_normal_force",
+    "INITIAL_STATE_AWARE_COEFFICIENTS",
+    "PHASE2_COEFFICIENTS",
     "crn_centered_finite_difference",
+    "crn_fd_state_aware",
     "direct_ad_objective_and_gradient",
+    "direct_ad_state_aware",
     "evaluate_markov",
+    "evaluate_state_aware",
+    "replay_state_aware",
     "simulate_summary_batch",
     "simulate_trajectory",
     "uniform_bank",

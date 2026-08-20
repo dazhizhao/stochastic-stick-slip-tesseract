@@ -14,7 +14,16 @@ from wu2019.markov import (
     crn_centered_finite_difference,
     direct_ad_objective_and_gradient,
     evaluate_markov,
+    phase_basis,
     uniform_bank,
+)
+from wu2019.state_aware import (
+    INITIAL_STATE_AWARE_COEFFICIENTS,
+    PHASE2_COEFFICIENTS,
+    crn_fd_state_aware,
+    direct_ad_state_aware,
+    evaluate_state_aware,
+    replay_state_aware,
 )
 
 
@@ -98,3 +107,96 @@ def test_hard_markov_direct_ad_is_zero_and_crn_fd_is_nonzero() -> None:
     assert np.linalg.norm(first.gradient) > 0.0
     assert np.array_equal(first.gradient, second.gradient)
     assert np.any(first.mode_difference_counts > 0)
+
+
+def test_zero_gain_state_aware_matches_periodic_markov() -> None:
+    omegas = np.array([198.0, 202.0])
+    uniforms = uniform_bank(2, 20260820, TEST_SETTINGS)
+    periodic = evaluate_markov(
+        PHASE2_COEFFICIENTS, omegas, uniforms, TEST_SETTINGS
+    )
+    state_aware = evaluate_state_aware(
+        INITIAL_STATE_AWARE_COEFFICIENTS,
+        omegas,
+        uniforms,
+        TEST_SETTINGS,
+    )
+    assert np.allclose(
+        state_aware.amplitudes,
+        periodic.amplitudes,
+        rtol=1e-12,
+        atol=1e-14,
+    )
+    assert np.isclose(
+        state_aware.objective,
+        periodic.objective,
+        rtol=1e-12,
+        atol=1e-14,
+    )
+    assert np.array_equal(
+        state_aware.transition_counts,
+        np.broadcast_to(
+            periodic.transition_counts,
+            state_aware.transition_counts.shape,
+        ),
+    )
+    replay = replay_state_aware(
+        INITIAL_STATE_AWARE_COEFFICIENTS,
+        omegas[0],
+        uniforms[0],
+        TEST_SETTINGS,
+    )
+    assert np.array_equal(replay.modes, periodic.modes[0])
+    assert np.array_equal(replay.preload, periodic.preload[0])
+
+
+def test_state_aware_hard_gradient_is_real_and_reproducible() -> None:
+    omegas = np.array([198.0, 202.0, 206.0])
+    uniforms = uniform_bank(4, 20260820, TEST_SETTINGS)
+    _, direct_gradient = direct_ad_state_aware(
+        INITIAL_STATE_AWARE_COEFFICIENTS,
+        omegas,
+        uniforms,
+        TEST_SETTINGS,
+    )
+    first = crn_fd_state_aware(
+        INITIAL_STATE_AWARE_COEFFICIENTS,
+        omegas,
+        uniforms,
+        settings=TEST_SETTINGS,
+    )
+    second = crn_fd_state_aware(
+        INITIAL_STATE_AWARE_COEFFICIENTS,
+        omegas,
+        uniforms,
+        settings=TEST_SETTINGS,
+    )
+    assert np.max(np.abs(direct_gradient)) <= 1e-12
+    assert np.all(np.isfinite(first.gradient))
+    assert np.linalg.norm(first.gradient) > 0.0
+    assert np.array_equal(first.gradient, second.gradient)
+    assert np.any(np.abs(first.gradient[5:]) > 0.0)
+    assert np.any(first.mode_difference_counts[5:] > 0)
+    replay = replay_state_aware(
+        INITIAL_STATE_AWARE_COEFFICIENTS,
+        omegas[1],
+        uniforms[0],
+        TEST_SETTINGS,
+    )
+    assert set(np.unique(replay.preload)) == {30.0, 50.0}
+
+
+def test_state_aware_score_uses_only_previous_mechanics_state() -> None:
+    uniforms = uniform_bank(1, 20260820, TEST_SETTINGS)[0]
+    coefficients = INITIAL_STATE_AWARE_COEFFICIENTS.copy()
+    coefficients[5:] = [0.3, -0.2]
+    replay = replay_state_aware(
+        coefficients, 202.0, uniforms, TEST_SETTINGS
+    )
+    basis = phase_basis(TEST_SETTINGS)
+    expected = basis @ coefficients[:5]
+    expected[1:] += (
+        coefficients[5] * replay.velocity[:-1] / 0.48
+        + coefficients[6] * replay.displacement[:-1] / 0.0024
+    )
+    assert np.allclose(replay.score, expected, rtol=1e-12, atol=1e-14)

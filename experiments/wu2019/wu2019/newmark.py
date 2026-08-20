@@ -22,9 +22,23 @@ NEWMARK_BETA = 0.25
 NEWMARK_GAMMA = 0.5
 
 
-def _scan_trajectory(omega, normal_force, steps_per_period):
+def _initial_newmark_state():
+    return (
+        jnp.asarray(0.0, dtype=jnp.float64),
+        jnp.asarray(0.0, dtype=jnp.float64),
+        jnp.asarray(0.0, dtype=jnp.float64),
+        jnp.asarray(0.0, dtype=jnp.float64),
+        jnp.asarray(False),
+    )
+
+
+def _advance_newmark_state(
+    state,
+    external_force,
+    current_normal_force,
+    dt,
+):
     parameters = DEFAULT_PARAMETERS
-    dt = 2.0 * jnp.pi / (omega * steps_per_period)
     mass = parameters.mass
     damping = parameters.damping
     stiffness = parameters.stiffness
@@ -37,89 +51,92 @@ def _scan_trajectory(omega, normal_force, steps_per_period):
     )
     effective_stiffness = stiffness + mass_term + damping_term
 
-    initial_state = (
-        jnp.asarray(0.0, dtype=jnp.float64),
-        jnp.asarray(0.0, dtype=jnp.float64),
-        jnp.asarray(0.0, dtype=jnp.float64),
-        jnp.asarray(0.0, dtype=jnp.float64),
-        jnp.asarray(False),
+    displacement, velocity, acceleration, slider, was_slipping = state
+    displacement_predictor = (
+        displacement
+        + dt * velocity
+        + dt**2 * (0.5 - NEWMARK_BETA) * acceleration
     )
+    velocity_predictor = (
+        velocity + dt * (1.0 - NEWMARK_GAMMA) * acceleration
+    )
+    effective_rhs = (
+        external_force
+        + (mass_term + damping_term) * displacement_predictor
+        - damping * velocity_predictor
+    )
+
+    stick_displacement = (
+        effective_rhs + contact_stiffness * slider
+    ) / (effective_stiffness + contact_stiffness)
+    friction_limit = mu * current_normal_force
+    trial_force, is_slipping, direction = select_contact_state(
+        stick_displacement,
+        slider,
+        contact_stiffness,
+        friction_limit,
+    )
+    slip_force = friction_limit * direction
+    slip_displacement = (
+        effective_rhs - slip_force
+    ) / effective_stiffness
+
+    next_displacement = jnp.where(
+        is_slipping, slip_displacement, stick_displacement
+    )
+    friction_force = jnp.where(
+        is_slipping, slip_force, trial_force
+    )
+    next_slider = jnp.where(
+        is_slipping,
+        next_displacement - friction_force / contact_stiffness,
+        slider,
+    )
+    next_acceleration = (
+        next_displacement - displacement_predictor
+    ) / (NEWMARK_BETA * dt**2)
+    next_velocity = velocity_predictor + (
+        NEWMARK_GAMMA * dt * next_acceleration
+    )
+    dissipated_increment = friction_force * (next_slider - slider)
+    transitioned = is_slipping != was_slipping
+    next_state = (
+        next_displacement,
+        next_velocity,
+        next_acceleration,
+        next_slider,
+        is_slipping,
+    )
+    output = (
+        next_displacement,
+        next_velocity,
+        next_acceleration,
+        next_slider,
+        friction_force,
+        is_slipping,
+        dissipated_increment,
+        transitioned,
+    )
+    return next_state, output
+
+
+def _scan_trajectory(omega, normal_force, steps_per_period):
+    parameters = DEFAULT_PARAMETERS
+    dt = 2.0 * jnp.pi / (omega * steps_per_period)
     times = dt * jnp.arange(1, normal_force.shape[0] + 1, dtype=jnp.float64)
     forcing = parameters.forcing_amplitude * jnp.sin(omega * times)
 
     def step(state, step_inputs):
-        displacement, velocity, acceleration, slider, was_slipping = state
         external_force, current_normal_force = step_inputs
-
-        displacement_predictor = (
-            displacement
-            + dt * velocity
-            + dt**2 * (0.5 - NEWMARK_BETA) * acceleration
+        return _advance_newmark_state(
+            state,
+            external_force,
+            current_normal_force,
+            dt,
         )
-        velocity_predictor = (
-            velocity + dt * (1.0 - NEWMARK_GAMMA) * acceleration
-        )
-        effective_rhs = (
-            external_force
-            + (mass_term + damping_term) * displacement_predictor
-            - damping * velocity_predictor
-        )
-
-        stick_displacement = (
-            effective_rhs + contact_stiffness * slider
-        ) / (effective_stiffness + contact_stiffness)
-        friction_limit = mu * current_normal_force
-        trial_force, is_slipping, direction = select_contact_state(
-            stick_displacement,
-            slider,
-            contact_stiffness,
-            friction_limit,
-        )
-        slip_force = friction_limit * direction
-        slip_displacement = (
-            effective_rhs - slip_force
-        ) / effective_stiffness
-
-        next_displacement = jnp.where(
-            is_slipping, slip_displacement, stick_displacement
-        )
-        friction_force = jnp.where(
-            is_slipping, slip_force, trial_force
-        )
-        next_slider = jnp.where(
-            is_slipping,
-            next_displacement - friction_force / contact_stiffness,
-            slider,
-        )
-        next_acceleration = (
-            next_displacement - displacement_predictor
-        ) / (NEWMARK_BETA * dt**2)
-        next_velocity = velocity_predictor + (
-            NEWMARK_GAMMA * dt * next_acceleration
-        )
-        dissipated_increment = friction_force * (next_slider - slider)
-        transitioned = is_slipping != was_slipping
-        next_state = (
-            next_displacement,
-            next_velocity,
-            next_acceleration,
-            next_slider,
-            is_slipping,
-        )
-        output = (
-            next_displacement,
-            next_velocity,
-            next_acceleration,
-            next_slider,
-            friction_force,
-            is_slipping,
-            dissipated_increment,
-            transitioned,
-        )
-        return next_state, output
 
     _, outputs = jax.lax.scan(
-        step, initial_state, (forcing, normal_force)
+        step, _initial_newmark_state(), (forcing, normal_force)
     )
     return times, outputs
 
