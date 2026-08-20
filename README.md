@@ -1,163 +1,213 @@
-# End-to-End Stochastic Stick-Slip Optimization with Mixed Gradients
+![Initial and optimized Markov-jump deformation under the same forcing and random tape](./outputs/markov_jump_long_training/initial_vs_optimized_deformation.gif)
 
-A compact benchmark that joins a PyTorch controller to hard stochastic JAX-FEM mechanics through two Tesseract components.
+# End-to-End Optimization through Stochastic Markov-Jump Mechanics
+
+*Mixed PyTorch-autograd and CRN finite-difference gradients composed with Tesseract*
+
+A PyTorch controller learns stochastic switching policies for semi-active friction dampers through a hard Markov-jump JAX-FEM simulator whose sample-path coefficient gradient under direct AD is exactly zero.
+
+| Neural parameters | Physics interface | Direct AD | Fixed monitor | Held-out | Improved cases |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 469 | 5D | 0 | 13.29% reduction | 8.65% reduction | 52/64 |
 
 Built for the [Tesseract Hackathon 2026](https://pasteurlabs.ai/tesseract-hackathon-2026/), Hybrid ML + Mechanistic Models track.
 
-![Fixed and optimized deformation under identical visualization settings](./outputs/showcase/fixed_vs_final_deformation.gif)
+## 1. The engineering problem
 
-| Free DOF | Neural parameters | Mechanics interface | Optimization | Train reduction | Held-out reduction | Held-out wins |
-| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 320 | 469 | 5D Fourier | 500 iterations | 24.09% | 11.71% | 49/64 |
+The benchmark models a nondimensional two-dimensional cantilever under uncertain periodic loading. Two semi-active dry-friction contacts act on the lower edge. Each device has two permitted preload states: `LOW = 0.02` and `HIGH = 0.06`. The controller does not prescribe a continuous friction force. It changes the rates of the random `LOW -> HIGH` and `HIGH -> LOW` transitions. The sampled preload then enters a hard Jenkins contact law, which determines STICK or SLIP at every physical time step.
 
-## Problem
+The finite-element model uses a `32 x 4` QUAD4 mesh, 165 nodes, and 320 free degrees of freedom. Its left edge is clamped. A distributed load acts on the right edge, the protected displacement is measured there, and the two friction contacts sit near the free end. The forcing combines harmonics at `1.00` and `1.35` times the first natural frequency. Random amplitudes and phases define one reproducible forcing condition.
 
-The model is a nondimensional two-dimensional cantilever with two hard Jenkins friction contacts. Random harmonic amplitudes and phases define one load history per seed. A semi-active controller changes the shared contact preload $N(t)$, which changes the friction threshold and the timing of STICK/SLIP events.
-
-For forcing realization $\xi$, the loss is the time-averaged squared vertical displacement at one observation point:
+For forcing condition $\xi$ and Markov realization $\omega$, the trajectory loss is the time-mean squared displacement at the observation point:
 
 $$
-L(\theta;\xi)=\frac{1}{T}\sum_{t=1}^{T}x_{\mathrm{obs}}(t;\theta,\xi)^2,
-\qquad
-J(\theta)=\frac{1}{n}\sum_{i=1}^{n}L(\theta;\xi_i).
+L(\theta;\xi,\omega)
+=\frac{1}{800}\sum_{n=1}^{800}
+x_{\mathrm{obs},n}(\theta;\xi,\omega)^2.
 $$
 
-The objective is an average over time and seeds. A controlled trajectory can therefore exceed the fixed-preload trajectory at individual instants while still reducing $J$.
+Training minimizes the mean over forcing conditions and four Markov realizations per condition. This is a literature-grounded numerical benchmark. It is not an experimentally validated damper or a calibrated structural model.
 
-## Why one gradient rule is not a good default
+## 2. Why Direct AD is zero here
 
-The 469 neural parameters live in a smooth PyTorch program and are a natural fit for autograd. The mechanics program is different: at each time step it enumerates nine coupled contact regimes, applies hard validity conditions, selects a regime with <code>argmax</code>, and updates two slider states. A coefficient perturbation can change a transition time, a state sequence, and the subsequent trajectory.
+The controller emits five Fourier coefficients. They define a bounded policy signal $s(t)$ and two transition probabilities:
 
-Naive JAX AD through this program differentiates the branch selected in the forward pass. It does not differentiate the discrete change in regime selection. The production mechanics VJP therefore uses common-random-number centered finite differences at the five-dimensional Fourier boundary. Positive and negative perturbations use the same forcing seeds, so the difference measures the response to the control perturbation rather than a change in random realization.
+$$
+p_{\mathrm{LH}}(t)=1-\exp[-\lambda_0\exp(\beta\tanh s(t))\Delta t],
+$$
 
-This is a component-level choice, not a claim that automatic differentiation cannot be used for stochastic systems.
+$$
+p_{\mathrm{HL}}(t)=1-\exp[-\lambda_0\exp(-\beta\tanh s(t))\Delta t].
+$$
 
-## Direct AD versus CRN-FD
+Uniform random numbers turn those probabilities into hard Boolean mode decisions. The mechanics core receives only the resulting two-contact preload history and fixed damping. It has no coefficient, probability, rate, Fourier basis, or random-tape input.
 
-The final ablation holds the complete hard forward program fixed and changes only the mechanics backward rule. Both methods start from the same MLP parameters and use the same 32 training seeds, five Fourier coefficients, hard objective, Adam optimizer, and learning rate <code>0.01</code>.
+That interface determines the sample-path derivative. Hold the random tape fixed and perturb a coefficient by a small amount. If every threshold comparison returns the same mode sequence, the mechanics core still receives exactly the same sequence of `0.02` and `0.06` values. Its trajectory and loss are unchanged. The sampled loss is locally constant with respect to the coefficient even though its expectation changes when a perturbation is large enough to alter a mode decision.
 
-![Direct-AD and CRN-FD gradient and 20-step hard-objective comparison](./outputs/direct_ad_ablation/direct_ad_vs_crn_fd.png)
+Gate A measured the raw coefficient gradient through the complete hard forward program:
 
-| Quantity at the initial controller | CRN-FD | Direct AD | Comparison |
-| --- | ---: | ---: | ---: |
-| Coefficient-gradient norm | <code>3.121472e-4</code> | <code>3.105526e-4</code> | cosine <code>0.999455</code>, relative difference <code>3.3321%</code> |
-| 469-parameter gradient norm | <code>1.495926e-3</code> | <code>1.490590e-3</code> | cosine <code>0.999970</code>, relative difference <code>0.8491%</code> |
-| Hard objective, iteration 20 | <code>0.0072422650</code> | <code>0.0072439490</code> | reduction <code>5.4618%</code> vs <code>5.4398%</code> |
+```text
+Direct AD  = [0, 0, 0, 0, 0]
 
-All <code>32/32</code> seeds changed at least one hard contact-state sequence under the nominal positive/negative coefficient perturbations. Despite that event sensitivity, naive branchwise AD closely matches CRN-FD at the initial controller and follows a nearly identical 20-step objective trajectory in this benchmark. CRN-FD finishes slightly lower, but the experiment does not support a claim that direct AD fails here. It shows why the mechanics boundary is kept explicit: its derivative rule can be tested and changed without altering the hard forward model or the PyTorch controller.
+CRN-FD     = [-0.00858, +0.00059, +0.00399, -0.00040, +0.00555]
+FD L2 norm = 0.01099
+```
 
-## Why Tesseract
+The zero is a consequence of the hard random program. The implementation adds no `stop_gradient` operation. Direct AD remains appropriate inside smooth parts of the computation; it simply cannot detect a neighboring discrete sample-path change at this boundary.
 
-Without a component boundary, the host would need to maintain a manual PyTorch/JAX bridge, implement the mechanics cotangent, and wire it back into the network. Tesseract gives each component ownership of the derivative rule appropriate to its implementation.
+Centered finite differences can cross those decision thresholds. For coefficient $z_j$,
 
-**Two Tesseracts. Two frameworks. Two derivative rules. One end-to-end gradient.**
+$$
+\widehat g_j=
+\frac{J(z+\varepsilon e_j;\xi,\omega)-J(z-\varepsilon e_j;\xi,\omega)}
+{2\varepsilon}, \qquad \varepsilon=0.02.
+$$
 
-| Component | Framework | Input → output | Production derivative |
-| --- | --- | --- | --- |
-| <code>fourier_controller</code> | PyTorch | <code>theta[469]</code>, <code>descriptors[8,6]</code> → <code>coeffs[8,5]</code> | autograd VJP |
-| <code>stick_slip_fem</code> | JAX/JAX-FEM | <code>q[2]</code>, <code>coeffs[8,5]</code>, <code>seeds[8]</code> → <code>seed_losses[8]</code> | CRN centered-FD VJP |
-| Host | PyTorch | <code>seed_losses</code> → scalar mean | <code>torch.mean</code> and <code>backward()</code> |
+Both sides use the same forcing and the same uniform tape. This common-random-number (CRN) coupling isolates the coefficient perturbation from an unrelated change in Monte Carlo noise.
+
+## 3. Mixed-gradient architecture
+
+The differentiable program has two components and two derivative rules. Together they expose one ordinary backward pass to the optimizer.
 
 <pre>
-theta [469]       forcing descriptors [8,6]
-      \                    /
-       v                  v
-  +--------------------------------+
-  | fourier_controller Tesseract   |
-  | PyTorch MLP + autograd VJP     |
-  +---------------+----------------+
-                  | coeffs [8,5]
-                  v
-  +--------------------------------+
-  | stick_slip_fem Tesseract       |
-  | JAX-FEM + hard Jenkins         |
-  | CRN centered-FD VJP            |
-  +---------------+----------------+
-                  | seed_losses [8]
-                  v
-             torch.mean
-                  |
-                  v
-             loss.backward()
-                  |
-                  v
-             dJ/dtheta [469]
+forcing descriptor
+      |
+      v
+PyTorch controller, theta [469] -- autograd VJP
+      |
+      v
+five Fourier rate coefficients
+      |
+      v
+Tesseract boundary
+      |
+      v
+hard Markov LOW/HIGH switching
+      |
+      v
+hard Jenkins STICK/SLIP + JAX-FEM -- same-tape CRN-FD VJP
+      |
+      v
+seed losses -- mean -- loss.backward() -- dJ/dtheta
 </pre>
 
-The controller emits five coefficients per seed,
+`fourier_controller` is a PyTorch `6-16-16-5` MLP. Six forcing descriptors encode the two amplitudes and phases. Its 469 parameters map each condition to five rate coefficients, and PyTorch autograd supplies the controller VJP.
 
-$$
-z=[a_0,a_1,b_1,a_2,b_2],
-$$
+`markov_jump_fem` owns the hard Markov generator, the two coupled Jenkins contacts, and the [JAX-FEM](https://github.com/deepmodeling/jax-fem) structural response. The component receives `coeffs[8,5]`, eight forcing seeds, and explicit `uniforms[8,4,801,2]`. It returns eight realization-averaged losses plus small Markov diagnostics. Its coefficient VJP uses five coordinate-wise centered differences, so one backward call requires ten stochastic batch forwards. The VJP multiplies the resulting `[8,5]` Jacobian by the incoming cotangent without another seed average.
 
-which define the bounded preload
+Long training uses 32 forcing conditions in four eight-condition component calls. Their 32 losses are concatenated before one `.mean().backward()` and one Adam update. Thus each forcing condition has the intended upstream weight of `1/32`.
 
-$$
-N(t)=0.04+0.02\tanh\!\left[
-a_0+a_1\cos(0.9\omega_1t)+b_1\sin(0.9\omega_1t)
-+a_2\cos(1.35\omega_1t)+b_2\sin(1.35\omega_1t)
-\right].
-$$
+Two components, two derivative rules, one end-to-end optimizer.
 
-Only this low-dimensional interface crosses the hard mechanics boundary. One centered mechanics VJP needs 10 batch forwards per eight-seed Tesseract call. Centered finite differences over all 469 neural weights would instead require 938 perturbed full-objective evaluations.
+## 4. Why Tesseract?
 
-## Compact ablations
+The software boundary matches the mathematical boundary. PyTorch owns the parameter graph and its smooth VJP. The stochastic JAX program owns the hard forward model and its five-dimensional CRN-FD VJP. [Tesseract](https://github.com/pasteurlabs/tesseract-core) routes values and cotangents between them, so the host sees a composed differentiable function.
 
-| Question | Controlled comparison | Result |
-| --- | --- | --- |
-| Does common randomness stabilize the finite difference? | Five fixed 5D gradient estimates, CRN vs independent negative-side seeds | Mean direction cosine <code>0.976504</code> vs <code>0.209988</code> |
-| Why keep a 5D mechanics interface? | Five coefficient columns vs 469 neural weights | 10 batch forwards per mechanics VJP vs 938 weight perturbations |
-| Does seed conditioning help? | Shared Fourier vs MLP Fourier on the H4 64-seed test | MLP objective <code>2.8648%</code> below Shared; 52/64 wins |
-| Does branchwise AD disagree with CRN-FD here? | Same hard forward and 20-step optimizer settings | Initial theta cosine <code>0.999970</code>; reductions <code>5.4398%</code> vs <code>5.4618%</code> |
+A manual bridge would have to preserve PyTorch's parameter graph while calling JAX, implement the physics cotangent, and route it back with the right shape and dtype. Tesseract assigns those responsibilities to the components while leaving the host training loop conventional. Containerization is incidental here. The reason for the boundary is the combination of different frameworks and different justified derivative rules.
 
-The earlier eight-seed experiment overfit: its MLP improved the training objective by <code>13.1509%</code> but increased the 32-seed test objective by <code>0.1833%</code>. Increasing the training set to 32 seeds recovered a <code>5.9386%</code> reduction on 64 new seeds. This is retained as a practical warning about stochastic training coverage, not as a general sample-complexity claim.
+## 5. Does each design choice matter?
 
-## Scientific result
+![Gradient-rule, random-coupling, and controller ablations](./outputs/markov_jump_ablation/ablation_summary.png)
 
-The final scientific showcase uses a <code>32×4</code> QUAD4 mesh with 128 elements, 165 nodes, and 320 free DOF. Thirty-two training seeds are split into four fixed eight-seed Tesseract batches. Their losses are averaged before one backward pass and one Adam update. The reported controller is iteration 500, not a selected checkpoint.
+| Question | Controlled evidence |
+| --- | --- |
+| Why replace Direct AD at the physics boundary? | The hard sample-path coefficient gradient is exactly zero, while CRN-FD has L2 norm `0.01099`. |
+| Why share random tapes? | CRN cosine-to-method-mean is `0.365`, versus `0.113` with independent tapes; its 20-step monitor also finishes lower. |
+| How much does the controller structure matter? | Shared Fourier improves held-out loss by `8.05%`; forcing-conditioned MLP improves it by `8.65%`. |
+| Does the FD-trained policy transfer? | The final MLP improves 52 of 64 held-out forcing conditions. |
 
-![Training objective over 500 Adam iterations](./outputs/showcase/optimization_history_500.png)
+CRN improves gradient repeatability relative to independent tapes, but six finite-bank estimates still vary. Its mean cosine remains moderate at `0.365`. Over the matched 20-step comparison, the CRN fixed monitor falls from `0.0124165` to `0.0109324`; the independent-tape branch reaches `0.0113970`.
 
-| Metric | Initial | Iteration 500 | Change |
-| --- | ---: | ---: | ---: |
-| 32-seed train objective | <code>0.007660674831</code> | <code>0.005815166250</code> | <code>-24.0907%</code> |
-| 64-seed held-out objective | <code>0.007484088873</code> | <code>0.006607333975</code> | <code>-11.7149%</code> |
+The controller ablation gives a second qualification. A shared time-varying switching policy already captures most of the benefit, reducing held-out loss by `8.05%` and winning on 53 of 64 conditions. Forcing conditioning provides a modest additional aggregate gain: the MLP is `0.6469%` below Shared and wins their paired comparison on 33 of 64 conditions. The Shared result supplies most of the control benefit; the MLP adds condition-specific refinement.
 
-![Initial and optimized held-out objective distributions](./outputs/showcase/held_out_distribution.png)
+## 6. Optimization results
 
-The optimized controller improves 49 of 64 held-out realizations. The remaining 15 cases are included in the distribution; this is aggregate stochastic improvement, not a per-realization guarantee.
+The final run performs exactly 200 Adam updates at learning rate `0.01`. Every update uses a newly sampled Markov tape bank, while all ten positive and negative VJP evaluations within that update share the bank. A separate fixed bank is evaluated every ten iterations. Because the sampled training bank changes between iterations, the fixed monitor is the comparable optimization trace.
 
-## Reproduce
+![Sampled training objective and fixed monitor over 200 updates](./outputs/markov_jump_long_training/optimization_history.png)
+
+The fixed monitor decreases from `0.0124165` to `0.0107664`, a `13.29%` reduction. After training, one independent held-out bank evaluates 64 new forcing conditions with four realizations each. The initial and optimized controllers use the same held-out tapes, and the four realization losses are averaged before forming forcing-level statistics.
+
+![Paired held-out objectives and complete improvement distribution](./outputs/markov_jump_long_training/held_out_distribution.png)
+
+Held-out mean loss decreases from `0.0114268` to `0.0104386`, or `8.65%`. The median forcing-level improvement is `7.38%`, and 52 of 64 conditions improve. The histogram retains the adverse cases; the result is an aggregate reduction rather than a guarantee for every forcing condition.
+
+### Learned switching behavior
+
+The optimized policy spends more time in HIGH preload and switches less often in this benchmark:
+
+| Contact | HIGH occupancy, initial | HIGH occupancy, optimized | Mean transitions, initial | Mean transitions, optimized |
+| --- | ---: | ---: | ---: | ---: |
+| A | 0.492 | 0.796 | 8.08 | 6.49 |
+| B | 0.514 | 0.797 | 8.03 | 6.32 |
+
+Under this operating condition, the learned rates favor longer HIGH-preload residence periods. This observation is specific to the numerical system studied here.
+
+## 7. How it works
+
+Randomness is explicit and reproducible. A bank is indexed by stream, training iteration, forcing seed, and realization. The two contacts share one policy but receive independent uniform tapes. For each of the 800 physical steps, the Markov generator first updates both modes and then maps them to fixed preloads. The Jenkins solver evaluates the nine possible two-contact STICK/SLIP regimes and advances the finite-element state.
+
+The main implementation is intentionally small:
+
+```text
+stochastic_stick_slip/
+    model.py                 mechanics core and Jenkins regimes
+    markov_jump.py           rates, probabilities, and hard mode sampling
+    engineering_markov.py    frozen benchmark and explicit tape banks
+
+tesseracts/
+    fourier_controller/      PyTorch forward and autograd VJP
+    markov_jump_fem/         hard JAX forward and CRN-FD VJP
+
+scripts/
+    run_markov_jump_gate_a.py
+    run_markov_jump_gate_c.py
+    run_markov_jump_long_training.py
+    run_markov_jump_ablation.py
+```
+
+Gate A checks the structural derivative claim: Direct AD is zero, CRN-FD is finite and nonzero, and coefficient perturbations change sampled mode histories. Gate C then composes both Tesseracts and confirms that the mixed gradient can move all 469 controller parameters and reduce an independent hard objective.
+
+## 8. Reproduce
 
 Python 3.12 and [uv](https://docs.astral.sh/uv/) are required.
 
-Quick tests and the H5 two-Tesseract regression:
+Quick environment and test check:
 
-    uv sync
-    uv run pytest -q
-    uv run python scripts/run_stage_h5.py
+```bash
+uv sync
+uv run pytest -q
+```
 
-Full 500-iteration scientific showcase:
+Run the two short gates that establish the gradient and composition claims:
 
-    uv run python scripts/run_showcase.py
+```bash
+uv run python scripts/run_markov_jump_gate_a.py
+uv run python scripts/run_markov_jump_gate_c.py
+```
 
-The full showcase took about 37 minutes on the development Mac CPU.
+Run the complete 200-step stochastic optimization and regenerate its media:
 
-Direct-AD ablation, after the full showcase has generated the matched CRN-FD history:
+```bash
+uv run python scripts/run_markov_jump_long_training.py
+```
 
-    uv run python scripts/run_direct_ad_ablation.py
+The full run takes about 40 to 45 minutes on the development Mac CPU. It uses the frozen seed sets, streams, `R=4`, finite-difference step, Adam settings, and 200-update schedule encoded in the runner.
 
-The ablation reuses <code>outputs/showcase/training_history.npz</code> for the scientific iterations 0–20 reference.
+## 9. Scope and limitations
 
-## Limitations
+This repository is a nondimensional two-dimensional benchmark with synthetic two-frequency forcing, an idealized two-state preload actuator, and finite Monte Carlo banks. It has no experimental validation, actuator delay, sensing model, or parameter calibration for a specific structure. CRN reduces random cancellation in the finite difference but leaves visible finite-bank variance. The forcing-conditioned MLP also adds only a modest improvement over the five-parameter Shared policy in the present setup.
 
-This is a two-dimensional, nondimensional mechanics benchmark with synthetic harmonic forcing and Jenkins friction. It has no experimental validation, calibrated actuator model, sensing delay, saturation dynamics, or structure-specific performance claim. The direct-AD comparison covers one initialization and 20 optimizer steps; its close agreement with CRN-FD should not be generalized to all event-driven systems or parameter regimes.
+The first continuous-preload prototype exposed a branchwise AD shortcut, which motivated the hard Markov-jump redesign. The legacy code remains in the repository for provenance, while this README reports only the Markov-jump benchmark. Larger banks, stronger stochastic couplings, and experimentally calibrated friction devices are natural follow-up studies.
 
-## References
+## 10. References
 
-1. *Design of semi-active dry friction dampers for steady-state vibration: sensitivity analysis and experimental studies.* Journal of Sound and Vibration 459, 114850 (2019). [doi:10.1016/j.jsv.2019.114850](https://doi.org/10.1016/j.jsv.2019.114850)
-2. *JAX-FEM: A differentiable GPU-accelerated 3D finite element solver for automatic inverse design and mechanistic data science.* Computer Physics Communications 291, 108802 (2023). [doi:10.1016/j.cpc.2023.108802](https://doi.org/10.1016/j.cpc.2023.108802)
-3. *Tesseract Core: Universal, autodiff-native software components for Simulation Intelligence.* Journal of Open Source Software 10(111), 8385 (2025). [doi:10.21105/joss.08385](https://doi.org/10.21105/joss.08385)
+1. Y. G. Wu et al., "Design of semi-active dry friction dampers for steady-state vibration: sensitivity analysis and experimental studies," *Journal of Sound and Vibration* 459, 114850 (2019). [doi:10.1016/j.jsv.2019.114850](https://doi.org/10.1016/j.jsv.2019.114850)
+2. F. Blanchini, D. Casagrande, P. Gardonio, and S. Miani, "Constant and switching gains in semi-active damping of vibrating structures," *International Journal of Control* 85(12), 1886-1897 (2012). [doi:10.1080/00207179.2012.710915](https://doi.org/10.1080/00207179.2012.710915)
+3. H. Hu, A. Batou, and H. Ouyang, "Friction-induced vibration of a stick-slip oscillator with random field friction modelling," *Mechanical Systems and Signal Processing* 183, 109572 (2023). [doi:10.1016/j.ymssp.2022.109572](https://doi.org/10.1016/j.ymssp.2022.109572)
+4. D. F. Anderson, "An efficient finite difference method for parameter sensitivities of continuous time Markov chains," *SIAM Journal on Numerical Analysis* 50(5), 2237-2258 (2012). [doi:10.1137/110849079](https://doi.org/10.1137/110849079)
+
+The benchmark uses ordinary same-tape CRN centered differences. It does not implement Anderson's split coupling.
 
 ## License
 

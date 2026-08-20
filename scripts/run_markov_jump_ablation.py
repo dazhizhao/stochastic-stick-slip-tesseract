@@ -681,58 +681,75 @@ def _panel_label(axis, label):
 
 def _plot_summary(gradient_rule, coupling, controller_results):
     _configure_style()
-    fig, axes = plt.subplots(
-        1,
-        3,
-        figsize=(7.2, 2.8),
-        constrained_layout=True,
-        gridspec_kw={"width_ratios": [0.78, 1.05, 1.42]},
+    fig = plt.figure(figsize=(7.2, 4.8), constrained_layout=True)
+    grid = fig.add_gridspec(
+        2,
+        2,
+        width_ratios=(0.78, 1.42),
+        height_ratios=(1.34, 0.92),
     )
+    gradient_axis = fig.add_subplot(grid[0, 0])
+    coupling_grid = grid[0, 1].subgridspec(
+        2, 1, height_ratios=(1.05, 0.95), hspace=0.08
+    )
+    cosine_axis = fig.add_subplot(coupling_grid[0, 0])
+    monitor_axis = fig.add_subplot(coupling_grid[1, 0])
+    controller_axis = fig.add_subplot(grid[1, :])
 
     direct_norm = gradient_rule["direct_ad"]["l2_norm"]
     crn_norm = gradient_rule["crn_fd"]["l2_norm"]
-    axes[0].hlines(
+    gradient_axis.hlines(
         [0, 1],
         0.0,
         [direct_norm, crn_norm],
         color=[DIRECT_COLOR, CRN_COLOR],
         lw=2.2,
     )
-    axes[0].scatter(
+    gradient_axis.scatter(
         [direct_norm, crn_norm],
         [0, 1],
-        s=42,
+        s=46,
         color=[DIRECT_COLOR, CRN_COLOR],
         edgecolor=FRAME_COLOR,
         linewidth=0.55,
         zorder=3,
     )
-    axes[0].set(
+    gradient_axis.set(
         yticks=[0, 1],
         yticklabels=["Direct AD", "CRN-FD"],
-        xlabel="Gradient norm",
-        xlim=(-0.05 * crn_norm, 1.16 * crn_norm),
+        xlabel="Physics coefficient gradient norm",
+        xlim=(-0.045 * crn_norm, 1.18 * crn_norm),
         ylim=(-0.55, 1.55),
     )
-    axes[0].text(
+    gradient_axis.text(
         direct_norm + 0.035 * crn_norm,
         0,
         "0",
         va="center",
         color=DIRECT_COLOR,
     )
-    axes[0].text(
+    gradient_axis.text(
         crn_norm,
-        1.18,
-        f"{crn_norm:.3g}",
+        1.17,
+        r"$1.10\times10^{-2}$",
         ha="center",
         color=CRN_COLOR,
     )
+    gradient_axis.text(
+        0.51,
+        0.17,
+        "sample-path gradient\nis locally constant",
+        transform=gradient_axis.transAxes,
+        ha="center",
+        va="center",
+        fontsize=6.8,
+        color=FRAME_COLOR,
+    )
 
-    for row, (method, color, label) in enumerate(
+    for row, (method, color) in enumerate(
         (
-            ("crn", CRN_COLOR, "CRN"),
-            ("independent", INDEPENDENT_COLOR, "Independent"),
+            ("independent", INDEPENDENT_COLOR),
+            ("crn", CRN_COLOR),
         )
     ):
         values = coupling[method]["cosine_to_mean"]
@@ -744,101 +761,176 @@ def _plot_summary(gradient_rule, coupling, controller_results):
         if defined:
             x = [value for _, value in defined]
             offsets = (
-                np.linspace(-0.11, 0.11, len(x))
+                np.linspace(-0.08, 0.08, len(x))
                 if len(x) > 1
                 else np.asarray([0.0])
             )
-            axes[1].scatter(
+            cosine_axis.scatter(
                 x,
                 row + offsets,
-                s=30,
+                s=31,
                 color=color,
-                alpha=0.82,
+                alpha=0.88,
                 edgecolor="white",
                 linewidth=0.45,
                 zorder=3,
             )
             mean_value = coupling[method]["cosine_to_mean_mean"]
-            axes[1].scatter(
-                [mean_value],
-                [row],
-                marker="D",
-                s=48,
+            cosine_axis.vlines(
+                mean_value,
+                row - 0.19,
+                row + 0.19,
                 color=color,
-                edgecolor=FRAME_COLOR,
-                linewidth=0.65,
+                linewidth=2.1,
                 zorder=4,
             )
-        axes[1].text(
-            0.02,
-            row + 0.28,
-            f"pairwise mean = {coupling[method]['pairwise_cosine_mean']:.2f}"
-            if coupling[method]["pairwise_cosine_mean"] is not None
-            else "pairwise mean undefined",
-            fontsize=6.6,
-            color=color,
-        )
-    axes[1].axvline(0.0, color=FRAME_COLOR, lw=0.8, alpha=0.55)
-    axes[1].set(
+            cosine_axis.text(
+                mean_value,
+                row + 0.24,
+                f"mean = {mean_value:.3f}",
+                ha="center",
+                va="center",
+                fontsize=6.9,
+                color=color,
+            )
+    cosine_axis.axvline(0.0, color=FRAME_COLOR, lw=0.8, alpha=0.55)
+    cosine_axis.set(
         yticks=[0, 1],
-        yticklabels=["CRN", "Independent"],
-        xlabel="Cosine to mean",
+        yticklabels=["Independent", "CRN"],
+        xlabel="Cosine to method mean",
         xlim=(-1.05, 1.05),
-        ylim=(-0.48, 1.48),
+        ylim=(-0.38, 1.38),
+    )
+
+    crn_monitor = coupling["crn_20_reference"]["fixed_monitor"]
+    independent_iterations = coupling["independent_20"][
+        "fixed_monitor_iterations"
+    ]
+    independent_monitor = coupling["independent_20"][
+        "fixed_monitor_objective"
+    ]
+    crn_iterations = [point["iteration"] for point in crn_monitor]
+    crn_objective = [point["objective"] for point in crn_monitor]
+    monitor_axis.plot(
+        independent_iterations,
+        independent_monitor,
+        color=INDEPENDENT_COLOR,
+        marker="o",
+        ms=3.6,
+        lw=1.5,
+    )
+    monitor_axis.plot(
+        crn_iterations,
+        crn_objective,
+        color=CRN_COLOR,
+        marker="o",
+        ms=3.6,
+        lw=1.8,
+    )
+    monitor_axis.text(
+        20.45,
+        crn_objective[-1],
+        "CRN",
+        ha="left",
+        va="center",
+        fontsize=6.8,
+        color=CRN_COLOR,
+    )
+    monitor_axis.text(
+        20.45,
+        independent_monitor[-1],
+        "Independent",
+        ha="left",
+        va="center",
+        fontsize=6.8,
+        color=INDEPENDENT_COLOR,
+    )
+    monitor_axis.set(
+        xlabel="Adam iteration",
+        ylabel="Fixed monitor",
+        xticks=[0, 10, 20],
+        xlim=(-0.8, 25.8),
+        ylim=(0.0107, 0.01262),
     )
 
     names = ["Neutral", "Shared", "MLP"]
-    values = [controller_results[name.lower()]["held_out_mean"] for name in names]
-    changes = [
-        controller_results[name.lower()]["relative_to_neutral"] for name in names
-    ]
-    positions = np.arange(3)
-    colors = [NEUTRAL_COLOR, SHARED_COLOR, MLP_COLOR]
-    lower = min(values) - 0.20 * (max(values) - min(values))
-    upper = max(values) + 0.30 * (max(values) - min(values))
-    axes[2].vlines(
-        positions,
-        lower,
-        values,
-        color=colors,
-        linewidth=3.0,
-        alpha=0.68,
+    changes = np.asarray(
+        [controller_results[name.lower()]["relative_to_neutral"] for name in names]
     )
-    axes[2].scatter(
+    positions = np.arange(3)[::-1]
+    colors = [NEUTRAL_COLOR, SHARED_COLOR, MLP_COLOR]
+    controller_axis.hlines(
         positions,
-        values,
-        s=58,
+        0.0,
+        changes,
+        color=colors,
+        linewidth=6.2,
+        alpha=0.88,
+    )
+    controller_axis.scatter(
+        changes,
+        positions,
+        s=49,
         color=colors,
         edgecolor=FRAME_COLOR,
-        linewidth=0.7,
+        linewidth=0.65,
         zorder=3,
     )
-    axes[2].set(
-        xticks=positions,
-        xticklabels=names,
-        ylabel="Held-out objective",
-        ylim=(lower, upper),
+    controller_axis.set(
+        yticks=positions,
+        yticklabels=["Neutral", "Shared\n53/64 improved", "MLP\n52/64 improved"],
+        xlabel="Held-out improvement vs Neutral (%)",
+        xlim=(-0.35, 10.15),
+        ylim=(-0.55, 2.55),
     )
-    for index, (value, change) in enumerate(zip(values, changes, strict=True)):
-        label = "baseline" if index == 0 else f"{change:+.2f}%"
-        axes[2].text(
-            index,
-            value + 0.045 * (upper - lower),
+    for index, change in enumerate(changes):
+        position = positions[index]
+        label = "0%" if index == 0 else f"{change:.2f}%"
+        controller_axis.text(
+            change + 0.16,
+            position,
             label,
-            ha="center",
-            va="bottom",
-            fontsize=7.2,
+            ha="left",
+            va="center",
+            fontsize=7.1,
             color=FRAME_COLOR,
         )
+    controller_axis.annotate(
+        "",
+        xy=(changes[2], 0.5),
+        xytext=(changes[1], 0.5),
+        arrowprops={"arrowstyle": "<->", "color": FRAME_COLOR, "lw": 0.75},
+    )
+    controller_axis.text(
+        4.2,
+        0.5,
+        "MLP vs Shared: +0.65%; MLP better on 33/64",
+        fontsize=6.8,
+        color=FRAME_COLOR,
+        ha="left",
+        va="center",
+    )
 
-    for label, axis in zip("abc", axes, strict=True):
+    for axis in (gradient_axis, cosine_axis, monitor_axis, controller_axis):
         _style_axis(axis)
-        _panel_label(axis, label)
+    _panel_label(gradient_axis, "a")
+    _panel_label(cosine_axis, "b")
+    _panel_label(controller_axis, "c")
     fig.savefig(FIGURE_PATH, dpi=300, bbox_inches="tight")
     plt.close(fig)
     with Image.open(FIGURE_PATH) as image:
         image.verify()
     return FIGURE_PATH
+
+
+def _plot_existing_results() -> Path:
+    """Regenerate the tracked figure without rerunning any ablation."""
+    results = json.loads(OUTPUT_PATH.read_text())
+    return _plot_summary(
+        results["gradient_rule"],
+        results["coupling"],
+        results["controller"],
+    )
 
 
 def _write_results(results):
@@ -1053,6 +1145,10 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    if sys.argv[1:]:
-        raise SystemExit("usage: run_markov_jump_ablation.py")
+    arguments = sys.argv[1:]
+    if arguments == ["--plot-only"]:
+        print(_plot_existing_results().resolve())
+        raise SystemExit(0)
+    if arguments:
+        raise SystemExit("usage: run_markov_jump_ablation.py [--plot-only]")
     raise SystemExit(main())
