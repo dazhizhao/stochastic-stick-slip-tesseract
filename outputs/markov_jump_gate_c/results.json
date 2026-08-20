@@ -1,0 +1,368 @@
+{
+  "configuration": {
+    "forcing_seeds": [
+      11,
+      23,
+      37,
+      41,
+      53,
+      67,
+      79,
+      97
+    ],
+    "markov_base_seed": 20260819,
+    "markov_iteration": 0,
+    "training_stream": 5,
+    "evaluation_stream": 6,
+    "num_realizations": 4,
+    "damping": 0.1,
+    "preload_low": 0.02,
+    "preload_high": 0.06,
+    "lambda_0": 0.5459790372271529,
+    "beta": 1.0,
+    "fd_epsilon": 0.02,
+    "learning_rate": 0.01,
+    "num_updates": 10,
+    "num_controller_parameters": 469
+  },
+  "pipeline": {
+    "controller": "fourier_controller Tesseract / PyTorch autograd VJP",
+    "physics": "markov_jump_fem Tesseract / coordinate CRN-FD VJP"
+  },
+  "direct_ad": {
+    "objective_history": [
+      {
+        "iteration": 0,
+        "train_objective": 0.013178539948017681,
+        "evaluation_objective": 0.013089311899291148
+      },
+      {
+        "iteration": 1,
+        "train_objective": 0.013178539948017681,
+        "evaluation_objective": 0.013089311899291148
+      },
+      {
+        "iteration": 2,
+        "train_objective": 0.013178539948017681,
+        "evaluation_objective": 0.013089311899291148
+      },
+      {
+        "iteration": 3,
+        "train_objective": 0.013178539948017681,
+        "evaluation_objective": 0.013089311899291148
+      },
+      {
+        "iteration": 4,
+        "train_objective": 0.013178539948017681,
+        "evaluation_objective": 0.013089311899291148
+      },
+      {
+        "iteration": 5,
+        "train_objective": 0.013178539948017681,
+        "evaluation_objective": 0.013089311899291148
+      },
+      {
+        "iteration": 6,
+        "train_objective": 0.013178539948017681,
+        "evaluation_objective": 0.013089311899291148
+      },
+      {
+        "iteration": 7,
+        "train_objective": 0.013178539948017681,
+        "evaluation_objective": 0.013089311899291148
+      },
+      {
+        "iteration": 8,
+        "train_objective": 0.013178539948017681,
+        "evaluation_objective": 0.013089311899291148
+      },
+      {
+        "iteration": 9,
+        "train_objective": 0.013178539948017681,
+        "evaluation_objective": 0.013089311899291148
+      },
+      {
+        "iteration": 10,
+        "train_objective": 0.013178539948017681,
+        "evaluation_objective": 0.013089311899291148
+      }
+    ],
+    "gradient_history": [
+      {
+        "iteration": 0,
+        "coefficient_gradient_norm": 0.0,
+        "coefficient_gradient_linf": 0.0,
+        "theta_gradient_norm": 0.0,
+        "parameter_displacement": 0.0
+      },
+      {
+        "iteration": 1,
+        "coefficient_gradient_norm": 0.0,
+        "coefficient_gradient_linf": 0.0,
+        "theta_gradient_norm": 0.0,
+        "parameter_displacement": 0.0
+      },
+      {
+        "iteration": 2,
+        "coefficient_gradient_norm": 0.0,
+        "coefficient_gradient_linf": 0.0,
+        "theta_gradient_norm": 0.0,
+        "parameter_displacement": 0.0
+      },
+      {
+        "iteration": 3,
+        "coefficient_gradient_norm": 0.0,
+        "coefficient_gradient_linf": 0.0,
+        "theta_gradient_norm": 0.0,
+        "parameter_displacement": 0.0
+      },
+      {
+        "iteration": 4,
+        "coefficient_gradient_norm": 0.0,
+        "coefficient_gradient_linf": 0.0,
+        "theta_gradient_norm": 0.0,
+        "parameter_displacement": 0.0
+      },
+      {
+        "iteration": 5,
+        "coefficient_gradient_norm": 0.0,
+        "coefficient_gradient_linf": 0.0,
+        "theta_gradient_norm": 0.0,
+        "parameter_displacement": 0.0
+      },
+      {
+        "iteration": 6,
+        "coefficient_gradient_norm": 0.0,
+        "coefficient_gradient_linf": 0.0,
+        "theta_gradient_norm": 0.0,
+        "parameter_displacement": 0.0
+      },
+      {
+        "iteration": 7,
+        "coefficient_gradient_norm": 0.0,
+        "coefficient_gradient_linf": 0.0,
+        "theta_gradient_norm": 0.0,
+        "parameter_displacement": 0.0
+      },
+      {
+        "iteration": 8,
+        "coefficient_gradient_norm": 0.0,
+        "coefficient_gradient_linf": 0.0,
+        "theta_gradient_norm": 0.0,
+        "parameter_displacement": 0.0
+      },
+      {
+        "iteration": 9,
+        "coefficient_gradient_norm": 0.0,
+        "coefficient_gradient_linf": 0.0,
+        "theta_gradient_norm": 0.0,
+        "parameter_displacement": 0.0
+      },
+      {
+        "iteration": 10,
+        "coefficient_gradient_norm": 0.0,
+        "coefficient_gradient_linf": 0.0,
+        "theta_gradient_norm": 0.0,
+        "parameter_displacement": 0.0
+      }
+    ],
+    "parameter_displacement": 0.0
+  },
+  "crn_fd": {
+    "objective_history": [
+      {
+        "iteration": 0,
+        "train_objective": 0.013178539948017681,
+        "evaluation_objective": 0.013089311899291148
+      },
+      {
+        "iteration": 1,
+        "train_objective": 0.013398875117945304,
+        "evaluation_objective": 0.012559977152965777
+      },
+      {
+        "iteration": 2,
+        "train_objective": 0.013111847839067296,
+        "evaluation_objective": 0.012655197353856255
+      },
+      {
+        "iteration": 3,
+        "train_objective": 0.012943193483307056,
+        "evaluation_objective": 0.012676211618280656
+      },
+      {
+        "iteration": 4,
+        "train_objective": 0.012866696771348456,
+        "evaluation_objective": 0.01284947732641012
+      },
+      {
+        "iteration": 5,
+        "train_objective": 0.012963300613399661,
+        "evaluation_objective": 0.012905038927859255
+      },
+      {
+        "iteration": 6,
+        "train_objective": 0.01273907492572484,
+        "evaluation_objective": 0.012946195060271351
+      },
+      {
+        "iteration": 7,
+        "train_objective": 0.012717636091278312,
+        "evaluation_objective": 0.013041550643670598
+      },
+      {
+        "iteration": 8,
+        "train_objective": 0.012650598679376327,
+        "evaluation_objective": 0.013120083514599805
+      },
+      {
+        "iteration": 9,
+        "train_objective": 0.012650682670811502,
+        "evaluation_objective": 0.013168589443468045
+      },
+      {
+        "iteration": 10,
+        "train_objective": 0.0126774772732913,
+        "evaluation_objective": 0.01307793496040089
+      }
+    ],
+    "gradient_history": [
+      {
+        "iteration": 0,
+        "coefficient_gradient_norm": 0.011727551920443693,
+        "coefficient_gradient_linf": 0.005799538645025572,
+        "theta_gradient_norm": 0.020181860700961177,
+        "parameter_displacement": 0.0
+      },
+      {
+        "iteration": 1,
+        "coefficient_gradient_norm": 0.015440459090027402,
+        "coefficient_gradient_linf": 0.008696693450917052,
+        "theta_gradient_norm": 0.02435560017643669,
+        "parameter_displacement": 0.09218172630708762
+      },
+      {
+        "iteration": 2,
+        "coefficient_gradient_norm": 0.013490161806472686,
+        "coefficient_gradient_linf": 0.006936203901071036,
+        "theta_gradient_norm": 0.017580284959100592,
+        "parameter_displacement": 0.1881715383716088
+      },
+      {
+        "iteration": 3,
+        "coefficient_gradient_norm": 0.0073367688117290195,
+        "coefficient_gradient_linf": 0.00405030004715089,
+        "theta_gradient_norm": 0.009491870282488603,
+        "parameter_displacement": 0.27556836076238067
+      },
+      {
+        "iteration": 4,
+        "coefficient_gradient_norm": 0.00664882774519949,
+        "coefficient_gradient_linf": 0.004811956254597508,
+        "theta_gradient_norm": 0.006363805960041624,
+        "parameter_displacement": 0.37111782187414066
+      },
+      {
+        "iteration": 5,
+        "coefficient_gradient_norm": 0.007703562249307874,
+        "coefficient_gradient_linf": 0.004366139238966234,
+        "theta_gradient_norm": 0.009925383010990642,
+        "parameter_displacement": 0.4687534869871443
+      },
+      {
+        "iteration": 6,
+        "coefficient_gradient_norm": 0.010999342458080059,
+        "coefficient_gradient_linf": 0.004366139238966234,
+        "theta_gradient_norm": 0.012012964383263236,
+        "parameter_displacement": 0.5326799934406332
+      },
+      {
+        "iteration": 7,
+        "coefficient_gradient_norm": 0.004943700624945219,
+        "coefficient_gradient_linf": 0.0020883563155983187,
+        "theta_gradient_norm": 0.005231069960624981,
+        "parameter_displacement": 0.5836641073514763
+      },
+      {
+        "iteration": 8,
+        "coefficient_gradient_norm": 0.0060157164031833235,
+        "coefficient_gradient_linf": 0.003301302280411518,
+        "theta_gradient_norm": 0.006216660973523016,
+        "parameter_displacement": 0.6323917149002045
+      },
+      {
+        "iteration": 9,
+        "coefficient_gradient_norm": 0.004764557091998288,
+        "coefficient_gradient_linf": 0.001895806531733012,
+        "theta_gradient_norm": 0.00704920849886199,
+        "parameter_displacement": 0.6714860409920784
+      },
+      {
+        "iteration": 10,
+        "coefficient_gradient_norm": 0.005920096846186865,
+        "coefficient_gradient_linf": 0.0028395594824110284,
+        "theta_gradient_norm": 0.009435930165014716,
+        "parameter_displacement": 0.7107798889047253
+      }
+    ],
+    "parameter_displacement": 0.7107798889047253
+  },
+  "markov_response": {
+    "training_bank": {
+      "iteration_0": {
+        "transition_totals": [
+          229,
+          263
+        ],
+        "mean_high_mode_fraction": [
+          0.4390625,
+          0.48066406250000004
+        ]
+      },
+      "iteration_10": {
+        "transition_totals": [
+          230,
+          260
+        ],
+        "mean_high_mode_fraction": [
+          0.4171875,
+          0.49781250000000005
+        ]
+      }
+    },
+    "evaluation_bank": {
+      "iteration_0": {
+        "transition_totals": [
+          262,
+          270
+        ],
+        "mean_high_mode_fraction": [
+          0.4917968750000001,
+          0.4724218750000001
+        ]
+      },
+      "iteration_10": {
+        "transition_totals": [
+          263,
+          277
+        ],
+        "mean_high_mode_fraction": [
+          0.49765625,
+          0.45359375
+        ]
+      }
+    }
+  },
+  "paired_evaluation": {
+    "initial_mean_objective": 0.013089311899291148,
+    "final_mean_objective": 0.01307793496040089,
+    "improved_count": 15,
+    "num_trajectories": 32
+  },
+  "gate_c": {
+    "result": "PASS",
+    "direct_ad_control_pass": true,
+    "crn_fd_evaluation_decreased": true,
+    "reason": "Direct AD remained stationary and CRN-FD reduced the final independent hard evaluation objective."
+  }
+}

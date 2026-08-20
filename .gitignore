@@ -127,6 +127,11 @@ outputs/markov_jump_gate_a/*
 outputs/markov_jump_gate_b/*
 !outputs/markov_jump_gate_b/results.json
 
+# Markov-jump Gate C result
+!outputs/markov_jump_gate_c/
+outputs/markov_jump_gate_c/*
+!outputs/markov_jump_gate_c/results.json
+
 # Model / checkpoint files
 *.ckpt
 *.pth
