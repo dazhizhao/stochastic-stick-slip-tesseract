@@ -50,8 +50,11 @@ class MarkovBatchResult:
     high_mode_fraction: jax.Array
 
 
-def markov_uniform_bank(num_realizations: int) -> np.ndarray:
-    """Return the fixed Gate A tape bank as [condition,R,time+1,contact]."""
+def markov_uniform_bank(
+    num_realizations: int,
+    stream_id: int = MARKOV_STREAM,
+) -> np.ndarray:
+    """Return a deterministic tape bank as [condition,R,time+1,contact]."""
     return np.stack(
         [
             np.stack(
@@ -60,7 +63,7 @@ def markov_uniform_bank(num_realizations: int) -> np.ndarray:
                         np.random.SeedSequence(
                             [
                                 MARKOV_BASE_SEED,
-                                MARKOV_STREAM,
+                                stream_id,
                                 MARKOV_ITERATION,
                                 int(seed),
                                 realization,

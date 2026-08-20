@@ -1,6 +1,7 @@
 import jax.numpy as jnp
 import numpy as np
 
+from scripts.run_markov_jump_gate_a import _centered_fd
 from stochastic_stick_slip.engineering_markov import (
     DAMPING,
     GATE_A_FORCING_SEEDS,
@@ -85,3 +86,31 @@ def test_hard_markov_forward_has_zero_raw_direct_ad() -> None:
     assert gradient.shape == (NUM_FOURIER_COEFFICIENTS,)
     assert np.all(np.isfinite(gradient))
     assert np.max(np.abs(gradient)) <= 1e-12
+
+
+def test_independent_markov_banks_are_reproducible_and_nested() -> None:
+    bank_a_r4 = markov_uniform_bank(4, stream_id=5)
+    bank_a_repeat = markov_uniform_bank(4, stream_id=5)
+    bank_a_r8 = markov_uniform_bank(8, stream_id=5)
+    bank_b_r4 = markov_uniform_bank(4, stream_id=6)
+    bank_b_r8 = markov_uniform_bank(8, stream_id=6)
+
+    assert np.array_equal(bank_a_r4, bank_a_repeat)
+    assert not np.array_equal(bank_a_r4, bank_b_r4)
+    assert np.array_equal(bank_a_r8[:, :4], bank_a_r4)
+    assert np.array_equal(bank_b_r8[:, :4], bank_b_r4)
+
+
+def test_independent_bank_crn_fd_gradients_are_finite_and_nonzero() -> None:
+    forcing = gate_a_forcing()
+    shared_coefficients = np.zeros(NUM_FOURIER_COEFFICIENTS, dtype=np.float64)
+    for stream_id in (5, 6):
+        result = _centered_fd(
+            shared_coefficients,
+            forcing,
+            markov_uniform_bank(4, stream_id=stream_id),
+        )
+        gradient = np.asarray(result["gradient"])
+        assert result["finite"]
+        assert not result["numerical_zero"]
+        assert np.all(np.isfinite(gradient))

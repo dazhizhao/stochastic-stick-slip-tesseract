@@ -122,6 +122,11 @@ outputs/score_function_probe/*
 outputs/markov_jump_gate_a/*
 !outputs/markov_jump_gate_a/results.json
 
+# Markov-jump Gate B result
+!outputs/markov_jump_gate_b/
+outputs/markov_jump_gate_b/*
+!outputs/markov_jump_gate_b/results.json
+
 # Model / checkpoint files
 *.ckpt
 *.pth
