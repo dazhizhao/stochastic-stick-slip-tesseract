@@ -409,22 +409,20 @@ def _select_contact_regime(
     return contact_force, contact_displacement, regime
 
 
-def build_batch_simulator(system: FEMSystem, fourier_basis: jax.Array):
+def build_mechanics_batch_simulator(system: FEMSystem):
+    """Build hard mechanics driven only by forcing and contact preloads."""
+
     def simulate_batch_impl(
-        q: jax.Array,
-        coefficients: jax.Array,
+        damping: jax.Array,
         forcing: jax.Array,
+        preload: jax.Array,
     ):
-        damping, base_preload = q
         dt = system.time_step
         mass = system.mass
         stiffness = system.stiffness
         load = system.load
         observation = system.observation
         contacts = system.contacts
-        preload = preload_history_with_basis(
-            base_preload, coefficients, fourier_basis
-        )
 
         effective_matrix = stiffness + mass / dt**2 + damping * mass / dt
         cholesky_factor = jnp.linalg.cholesky(effective_matrix)
@@ -498,6 +496,27 @@ def build_batch_simulator(system: FEMSystem, fourier_basis: jax.Array):
             return outputs
 
         return jax.vmap(simulate_seed)(forcing, preload)
+
+    return jax.jit(simulate_batch_impl)
+
+
+def build_batch_simulator(system: FEMSystem, fourier_basis: jax.Array):
+    """Build the legacy continuous-preload simulator."""
+    mechanics = build_mechanics_batch_simulator(system)
+
+    def simulate_batch_impl(
+        q: jax.Array,
+        coefficients: jax.Array,
+        forcing: jax.Array,
+    ):
+        damping, base_preload = q
+        shared_preload = preload_history_with_basis(
+            base_preload, coefficients, fourier_basis
+        )
+        per_contact_preload = jnp.repeat(
+            shared_preload[..., None], 2, axis=-1
+        )
+        return mechanics(damping, forcing, per_contact_preload)
 
     return jax.jit(simulate_batch_impl)
 
