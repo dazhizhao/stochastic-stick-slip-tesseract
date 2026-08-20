@@ -132,6 +132,15 @@ outputs/markov_jump_gate_b/*
 outputs/markov_jump_gate_c/*
 !outputs/markov_jump_gate_c/results.json
 
+# Markov-jump long-training showcase media
+!outputs/markov_jump_long_training/
+outputs/markov_jump_long_training/*
+!outputs/markov_jump_long_training/optimization_all_iterations.gif
+!outputs/markov_jump_long_training/initial_vs_optimized_deformation.gif
+!outputs/markov_jump_long_training/optimization_history.png
+!outputs/markov_jump_long_training/held_out_distribution.png
+!outputs/markov_jump_long_training/representative_markov_response.png
+
 # Model / checkpoint files
 *.ckpt
 *.pth

@@ -409,7 +409,10 @@ def _select_contact_regime(
     return contact_force, contact_displacement, regime
 
 
-def build_mechanics_batch_simulator(system: FEMSystem):
+def build_mechanics_batch_simulator(
+    system: FEMSystem,
+    return_full_displacement: bool = False,
+):
     """Build hard mechanics driven only by forcing and contact preloads."""
 
     def simulate_batch_impl(
@@ -488,6 +491,8 @@ def build_mechanics_batch_simulator(system: FEMSystem):
                     stick_to_slip,
                     slip_to_stick,
                 )
+                if return_full_displacement:
+                    output = output + (displacement_vector,)
                 return next_state, output
 
             _, outputs = jax.lax.scan(

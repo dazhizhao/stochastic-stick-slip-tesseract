@@ -53,8 +53,15 @@ class MarkovBatchResult:
 def markov_uniform_bank(
     num_realizations: int,
     stream_id: int = MARKOV_STREAM,
+    forcing_seeds: np.ndarray | None = None,
+    iteration: int = MARKOV_ITERATION,
 ) -> np.ndarray:
     """Return a deterministic tape bank as [condition,R,time+1,contact]."""
+    seeds = (
+        GATE_A_FORCING_SEEDS
+        if forcing_seeds is None
+        else np.asarray(forcing_seeds, dtype=np.int64)
+    )
     return np.stack(
         [
             np.stack(
@@ -64,7 +71,7 @@ def markov_uniform_bank(
                             [
                                 MARKOV_BASE_SEED,
                                 stream_id,
-                                MARKOV_ITERATION,
+                                iteration,
                                 int(seed),
                                 realization,
                             ]
@@ -73,12 +80,15 @@ def markov_uniform_bank(
                     for realization in range(num_realizations)
                 ]
             )
-            for seed in GATE_A_FORCING_SEEDS
+            for seed in seeds
         ]
     )
 
 
 MECHANICS_SIMULATOR = build_mechanics_batch_simulator(SYSTEM)
+FULL_FIELD_MECHANICS_SIMULATOR = build_mechanics_batch_simulator(
+    SYSTEM, return_full_displacement=True
+)
 
 
 def _simulate_markov_bank(coefficients, forcing, uniforms):

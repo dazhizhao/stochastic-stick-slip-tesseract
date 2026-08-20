@@ -7,6 +7,26 @@ jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 
 
+def markov_transition_probabilities(
+    coefficients: jax.Array,
+    fourier_basis: jax.Array,
+    time_step: float,
+    lambda_0: float,
+    beta: float,
+):
+    """Return the per-step LOW/HIGH transition probabilities."""
+    coefficients = jnp.asarray(coefficients, dtype=jnp.float64)
+    signal = coefficients @ fourier_basis.T
+    policy = jnp.tanh(signal)
+    probability_low_to_high = 1.0 - jnp.exp(
+        -lambda_0 * jnp.exp(beta * policy) * time_step
+    )
+    probability_high_to_low = 1.0 - jnp.exp(
+        -lambda_0 * jnp.exp(-beta * policy) * time_step
+    )
+    return probability_low_to_high, probability_high_to_low
+
+
 def generate_markov_preload_history(
     coefficients: jax.Array,
     fourier_basis: jax.Array,
@@ -21,13 +41,14 @@ def generate_markov_preload_history(
     coefficients = jnp.asarray(coefficients, dtype=jnp.float64)
     uniforms = jnp.asarray(uniforms, dtype=jnp.float64)
 
-    signal = coefficients @ fourier_basis.T
-    policy = jnp.tanh(signal)
-    probability_low_to_high = 1.0 - jnp.exp(
-        -lambda_0 * jnp.exp(beta * policy) * time_step
-    )
-    probability_high_to_low = 1.0 - jnp.exp(
-        -lambda_0 * jnp.exp(-beta * policy) * time_step
+    probability_low_to_high, probability_high_to_low = (
+        markov_transition_probabilities(
+            coefficients,
+            fourier_basis,
+            time_step,
+            lambda_0,
+            beta,
+        )
     )
 
     initial_high = uniforms[:, :, 0, :] < 0.5
