@@ -10,6 +10,7 @@ from stochastic_stick_slip.wu_v2 import (
     DIAGNOSTIC_NUM_PERIODS,
     FORCING_AMPLITUDE,
     SYSTEM,
+    excitation_grid,
     single_tone_forcing,
 )
 
@@ -59,11 +60,57 @@ def test_markov_streams_iterations_and_evaluation_bank_are_independent() -> None
     training_0 = markov.markov_uniform_bank(stream_id=2, iteration=0)
     training_1 = markov.markov_uniform_bank(stream_id=2, iteration=1)
     evaluation = markov.markov_uniform_bank(8, stream_id=3, iteration=0)
+    confirmation = markov.markov_uniform_bank(8, stream_id=4, iteration=0)
     assert evaluation.shape == (8, 8, 2401, 2)
     assert not np.array_equal(bank_a, bank_b)
     assert not np.array_equal(bank_b, training_0)
     assert not np.array_equal(training_0, training_1)
     assert not np.array_equal(evaluation[:, :4], training_0)
+    assert np.array_equal(
+        confirmation,
+        markov.markov_uniform_bank(8, stream_id=4, iteration=0),
+    )
+    assert not np.array_equal(evaluation, confirmation)
+
+
+def test_deterministic_binary_preload_is_synchronized_and_two_state() -> None:
+    phase = 0.37
+    for omega in (0.97 * SYSTEM.omega_1, 1.23 * SYSTEM.omega_1):
+        preload = markov.deterministic_binary_preload(omega, phase)
+        _, times = excitation_grid(omega, DIAGNOSTIC_NUM_PERIODS)
+        expected = np.where(
+            np.sin(2.0 * omega * times + phase) >= 0.0,
+            markov.PRELOAD_HIGH,
+            markov.PRELOAD_LOW,
+        )
+        assert preload.shape == (1, markov.NUM_STEPS, 2)
+        assert set(np.unique(preload)) == {
+            markov.PRELOAD_LOW,
+            markov.PRELOAD_HIGH,
+        }
+        assert np.array_equal(preload[0, :, 0], expected)
+        assert np.array_equal(preload[0, :, 0], preload[0, :, 1])
+
+
+def test_landscape_polar_grid_is_exact() -> None:
+    q_values, radii, phases = markov.landscape_polar_grid()
+    assert q_values.shape == (49, 2)
+    assert np.array_equal(radii[:1], [0.0])
+    assert np.array_equal(phases[:1], [0.0])
+    assert np.allclose(q_values[0], [0.0, 0.0])
+    for radius_index, radius in enumerate(markov.LANDSCAPE_RADII):
+        start = 1 + 16 * radius_index
+        stop = start + 16
+        assert np.allclose(radii[start:stop], radius)
+        assert np.allclose(phases[start:stop], markov.LANDSCAPE_PHASES)
+        assert np.allclose(
+            q_values[start:stop, 0],
+            radius * np.cos(markov.LANDSCAPE_PHASES),
+        )
+        assert np.allclose(
+            q_values[start:stop, 1],
+            radius * np.sin(markov.LANDSCAPE_PHASES),
+        )
 
 
 def test_wu_objective_uses_cycles_21_to_24() -> None:

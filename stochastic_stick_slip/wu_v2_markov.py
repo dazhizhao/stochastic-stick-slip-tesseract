@@ -12,6 +12,7 @@ from stochastic_stick_slip.wu_v2 import (
     DAMPING,
     DIAGNOSTIC_NUM_PERIODS,
     MECHANICS_SIMULATOR,
+    excitation_grid,
 )
 
 
@@ -23,6 +24,34 @@ CONDITION_LABELS = TRAINING_SEEDS.copy()
 NUM_CONDITIONS = len(CONDITION_LABELS)
 NUM_REALIZATIONS = 4
 NUM_STEPS = DIAGNOSTIC_NUM_PERIODS * STEPS_PER_PERIOD
+LANDSCAPE_RADII = np.asarray([0.25, 0.50, 1.00], dtype=np.float64)
+LANDSCAPE_PHASES = 2.0 * np.pi * np.arange(16, dtype=np.float64) / 16.0
+
+
+def deterministic_binary_preload(
+    omega: float,
+    phase: float,
+    num_periods: int = DIAGNOSTIC_NUM_PERIODS,
+) -> np.ndarray:
+    """Quantize the frozen deterministic two-omega command to LOW/HIGH."""
+    _, times = excitation_grid(omega, num_periods)
+    high = np.sin(2.0 * float(omega) * times + float(phase)) >= 0.0
+    scalar = np.where(high, PRELOAD_HIGH, PRELOAD_LOW)
+    return np.repeat(scalar[None, :, None], 2, axis=2)
+
+
+def landscape_polar_grid() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Return the registered neutral plus three-radius, 16-phase grid."""
+    radii = np.concatenate(
+        (np.zeros(1, dtype=np.float64), np.repeat(LANDSCAPE_RADII, 16))
+    )
+    phases = np.concatenate(
+        (np.zeros(1, dtype=np.float64), np.tile(LANDSCAPE_PHASES, 3))
+    )
+    q_values = np.column_stack(
+        (radii * np.cos(phases), radii * np.sin(phases))
+    )
+    return q_values, radii, phases
 
 
 def markov_uniform_bank(
