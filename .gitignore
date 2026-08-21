@@ -153,6 +153,12 @@ outputs/wu_v2_gate0/*
 !outputs/wu_v2_gate0/results.json
 !outputs/wu_v2_gate0/gate0_summary.png
 
+# Wu-style V2 Gate 0 repair result
+!outputs/wu_v2_gate0_repair/
+outputs/wu_v2_gate0_repair/*
+!outputs/wu_v2_gate0_repair/results.json
+!outputs/wu_v2_gate0_repair/gate0_repair_summary.png
+
 # Model / checkpoint files
 *.ckpt
 *.pth

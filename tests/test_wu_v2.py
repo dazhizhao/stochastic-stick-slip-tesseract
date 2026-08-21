@@ -10,10 +10,13 @@ from stochastic_stick_slip.model import (
 from stochastic_stick_slip.wu_v2 import (
     FORCING_AMPLITUDE,
     PHASES,
+    REPAIR_NUM_PERIODS,
+    REPAIR_PRELOAD_VALUES,
     constant_preload,
     cycle_amplitudes,
     excitation_grid,
     harmonic_preload,
+    repair_steady_state_metrics,
     single_tone_forcing,
     steady_state_metrics,
 )
@@ -82,3 +85,28 @@ def test_registered_steady_state_metric_uses_cycles_5_to_8() -> None:
     assert np.array_equal(returned, amplitudes)
     assert objective[0] == np.mean([5.0, 6.0, 7.0, 8.0])
     assert convergence[0] == abs(5.5 - 7.5) / 7.5
+
+
+def test_repair_metric_uses_cycles_9_to_12_and_13_to_16() -> None:
+    requested = np.arange(1.0, 17.0)
+    cycles = []
+    for amplitude in requested:
+        cycle = np.zeros(100)
+        cycle[0] = -amplitude
+        cycle[1] = amplitude
+        cycles.append(cycle)
+    displacement = np.concatenate(cycles)[None, :]
+
+    objective, convergence, amplitudes = repair_steady_state_metrics(
+        displacement
+    )
+    assert amplitudes.shape == (1, REPAIR_NUM_PERIODS)
+    assert np.array_equal(amplitudes[0], requested)
+    assert objective[0] == np.mean([13.0, 14.0, 15.0, 16.0])
+    assert convergence[0] == abs(14.5 - 10.5) / 14.5
+
+
+def test_repair_preload_grid_is_the_frozen_thirteen_points() -> None:
+    assert np.array_equal(REPAIR_PRELOAD_VALUES, np.linspace(0.0, 0.06, 13))
+    preload = constant_preload(0.0, num_periods=REPAIR_NUM_PERIODS)
+    assert preload.shape == (1, 1600, 2)
