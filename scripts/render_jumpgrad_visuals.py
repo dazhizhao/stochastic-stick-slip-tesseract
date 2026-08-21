@@ -22,7 +22,6 @@ mpl.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation, PillowWriter
 from matplotlib.collections import PolyCollection
-from matplotlib.patches import FancyArrowPatch, FancyBboxPatch
 import numpy as np
 from PIL import Image
 import torch
@@ -31,7 +30,6 @@ from stochastic_stick_slip.jumpgrad import (
     HELD_OUT_CONDITIONS,
     NUM_CONTROLLER_PARAMETERS,
     OMEGA_R,
-    TRAINING_CONDITIONS,
     WU_AMPLITUDE,
     WU_PHASE,
     build_jumpgrad_controller,
@@ -65,33 +63,18 @@ from stochastic_stick_slip.wu_v2_markov import (
 J1_PATH = ROOT / "outputs/jumpgrad_end_to_end/results.json"
 W1_PATH = ROOT / "outputs/wu2019_reproduction/scorecard.json"
 W2_PATH = ROOT / "outputs/wu_v2_head_to_head/results.json"
-W3_PATH = ROOT / "outputs/wu_v2_binary_comparator/results.json"
 OUTPUT_DIRECTORY = ROOT / "outputs/jumpgrad_visuals"
 
 MAIN_GIF_PATH = OUTPUT_DIRECTORY / "passive_wu_jumpgrad.gif"
 CONTROL_GIF_PATH = OUTPUT_DIRECTORY / "wu_vs_jumpgrad_control.gif"
 MAIN_RESULTS_PATH = OUTPUT_DIRECTORY / "main_results.png"
 GRADIENT_PATH = OUTPUT_DIRECTORY / "gradient_story.png"
-ARCHITECTURE_PATH = OUTPUT_DIRECTORY / "architecture.png"
-CONTROLLER_MAP_PATH = OUTPUT_DIRECTORY / "controller_map.png"
-PREVIEW_PATH = OUTPUT_DIRECTORY / "preview.md"
 
 EXPECTED_OUTPUTS = (
     MAIN_GIF_PATH,
     CONTROL_GIF_PATH,
     MAIN_RESULTS_PATH,
     GRADIENT_PATH,
-    ARCHITECTURE_PATH,
-    CONTROLLER_MAP_PATH,
-    PREVIEW_PATH,
-)
-PREVIEW_ASSETS = (
-    MAIN_GIF_PATH.name,
-    ARCHITECTURE_PATH.name,
-    MAIN_RESULTS_PATH.name,
-    GRADIENT_PATH.name,
-    CONTROL_GIF_PATH.name,
-    CONTROLLER_MAP_PATH.name,
 )
 
 SELECTED_HELD_OUT_INDEX = 5
@@ -114,8 +97,6 @@ FRAME_COLOR = "#20242A"
 PASSIVE_COLOR = "#858B91"
 WU_COLOR = "#35695C"
 JUMPGRAD_COLOR = "#B86D4B"
-TRAINING_COLOR = "#527E99"
-HELD_OUT_COLOR = "#B86D4B"
 MESH_EDGE_COLOR = "#30363D"
 
 METHOD_COLORS = {
@@ -145,11 +126,10 @@ def _allclose(left, right) -> bool:
 
 
 def load_frozen_sources() -> dict:
-    """Load and validate the four immutable scientific source artifacts."""
+    """Load and validate the three immutable scientific source artifacts."""
     j1 = _read_json(J1_PATH)
     w1 = _read_json(W1_PATH)
     w2 = _read_json(W2_PATH)
-    w3 = _read_json(W3_PATH)
     ratios = np.asarray(w1["configuration"]["local_frf_ratios"])
     held_out = j1["conditions"]["held_out"]
     valid = (
@@ -165,13 +145,12 @@ def load_frozen_sources() -> dict:
         == list(CONFIRMATION_STREAMS)
         and w2["configuration"]["total_confirmation_realizations"]
         == NUM_CONFIRMATION_REALIZATIONS
-        and w3["configuration"]["frequency_ratios"] == ratios.tolist()
         and _allclose(w1["harmonic_search"]["2"]["best_phase_rad"], WU_PHASE)
         and _allclose(w1["harmonic_search"]["2"]["best_amplitude"], WU_AMPLITUDE)
     )
     if not valid:
-        raise RuntimeError("J1/W1/W2/W3 frozen visualization inputs changed")
-    return {"j1": j1, "w1": w1, "w2": w2, "w3": w3, "ratios": ratios}
+        raise RuntimeError("J1/W1/W2 frozen visualization inputs changed")
+    return {"j1": j1, "w1": w1, "w2": w2, "ratios": ratios}
 
 
 def controller_q(final_theta: np.ndarray, conditions: np.ndarray) -> np.ndarray:
@@ -700,164 +679,6 @@ def render_gradient_story(j1: dict) -> None:
     plt.close(figure)
 
 
-def render_architecture() -> None:
-    _configure_plotting()
-    figure, axis = plt.subplots(figsize=(7.2, 2.45))
-    axis.set_xlim(0.0, 1.0)
-    axis.set_ylim(0.0, 1.0)
-    axis.axis("off")
-    outer = FancyBboxPatch(
-        (0.015, 0.10), 0.97, 0.80,
-        boxstyle="round,pad=0.01,rounding_size=0.02",
-        linewidth=1.05, edgecolor=FRAME_COLOR, facecolor="white",
-    )
-    axis.add_patch(outer)
-    boxes = (
-        (0.04, 0.36, 0.13, 0.26, "Operating\ncondition", PASSIVE_COLOR),
-        (0.205, 0.31, 0.15, 0.36, "PyTorch MLP", JUMPGRAD_COLOR),
-        (0.395, 0.37, 0.09, 0.24, r"$q=[a_2,b_2]$", WU_COLOR),
-        (0.525, 0.31, 0.15, 0.36, "Hard Markov\nswitching", WU_COLOR),
-        (0.715, 0.31, 0.16, 0.36, "JAX-FEM\n+ friction", WU_COLOR),
-        (0.91, 0.37, 0.06, 0.24, "loss", JUMPGRAD_COLOR),
-    )
-    for x, y, width, height, label, color in boxes:
-        axis.add_patch(
-            FancyBboxPatch(
-                (x, y), width, height,
-                boxstyle="round,pad=0.009,rounding_size=0.016",
-                linewidth=1.0, edgecolor=color,
-                facecolor=mpl.colors.to_rgba(color, 0.10),
-            )
-        )
-        axis.text(x + width / 2, y + height / 2, label, ha="center", va="center")
-    for start, end in ((0.17, 0.205), (0.355, 0.395), (0.485, 0.525), (0.675, 0.715), (0.875, 0.91)):
-        axis.annotate(
-            "", xy=(end, 0.49), xytext=(start, 0.49),
-            arrowprops={"arrowstyle": "-|>", "color": FRAME_COLOR, "lw": 1.0},
-        )
-    axis.annotate(
-        "autograd", xy=(0.28, 0.70), xytext=(0.43, 0.78),
-        ha="center", color=JUMPGRAD_COLOR,
-        arrowprops={"arrowstyle": "-|>", "color": JUMPGRAD_COLOR, "lw": 1.0},
-    )
-    axis.annotate(
-        "CRN-FD", xy=(0.44, 0.68), xytext=(0.78, 0.78),
-        ha="center", color=WU_COLOR,
-        arrowprops={"arrowstyle": "-|>", "color": WU_COLOR, "lw": 1.0},
-    )
-    axis.text(0.50, 0.17, "Tesseract", ha="center", fontweight="bold")
-    figure.savefig(ARCHITECTURE_PATH, dpi=300, bbox_inches="tight", facecolor="white")
-    plt.close(figure)
-
-
-def _add_q_arrows(axis, conditions: np.ndarray, q: np.ndarray, color: str) -> None:
-    magnitudes = np.linalg.norm(q, axis=1)
-    maximum = float(np.max(magnitudes))
-    figure = axis.figure
-    figure.canvas.draw()
-    for condition, coefficients, magnitude in zip(conditions, q, magnitudes, strict=True):
-        start_display = axis.transData.transform(condition)
-        start_axes = axis.transAxes.inverted().transform(start_display)
-        direction = coefficients / magnitude
-        length = 0.060 * magnitude / maximum
-        end_axes = start_axes + length * direction
-        axis.add_patch(
-            FancyArrowPatch(
-                start_axes, end_axes, transform=axis.transAxes,
-                arrowstyle="-|>", mutation_scale=8.5,
-                linewidth=1.1, color=color, zorder=4,
-            )
-        )
-
-
-def render_controller_map(j1: dict) -> None:
-    _configure_plotting()
-    training_q = np.asarray([row["q"] for row in j1["controller_outputs"]["training"]])
-    held_out_q = np.asarray([row["q"] for row in j1["controller_outputs"]["held_out"]])
-    figure, axis = plt.subplots(figsize=(5.6, 3.8))
-    axis.scatter(
-        TRAINING_CONDITIONS[:, 0], TRAINING_CONDITIONS[:, 1],
-        s=35, marker="o", facecolor="white", edgecolor=TRAINING_COLOR,
-        linewidth=1.2, label="Training", zorder=3,
-    )
-    axis.scatter(
-        HELD_OUT_CONDITIONS[:, 0], HELD_OUT_CONDITIONS[:, 1],
-        s=35, marker="s", facecolor="white", edgecolor=HELD_OUT_COLOR,
-        linewidth=1.2, label="Held out", zorder=3,
-    )
-    axis.set_xlim(0.74, 1.56)
-    axis.set_ylim(0.965, 1.075)
-    axis.set_xlabel(r"Forcing ratio, $F/F_0$")
-    axis.set_ylabel(r"Frequency ratio, $\omega/\omega_r$")
-    _style_axis(axis)
-    _add_q_arrows(axis, TRAINING_CONDITIONS, training_q, TRAINING_COLOR)
-    _add_q_arrows(axis, HELD_OUT_CONDITIONS, held_out_q, HELD_OUT_COLOR)
-    axis.legend(loc="lower left", ncol=2)
-    axis.text(
-        0.98, 0.04, "Arrow: q phase and magnitude",
-        transform=axis.transAxes, ha="right", va="bottom", fontsize=7.2,
-    )
-    figure.tight_layout()
-    figure.savefig(CONTROLLER_MAP_PATH, dpi=300, bbox_inches="tight", facecolor="white")
-    plt.close(figure)
-
-
-def write_preview(replay: dict, main_results: dict) -> None:
-    representative = replay["representative"]
-    if main_results["outperforms_wu"]:
-        result_caption = (
-            "JumpGrad lowers the sampled resonance peak beyond the reproduced "
-            "Wu2019 controller on the same FEM benchmark."
-        )
-    else:
-        result_caption = (
-            "The sampled local FRF compares the frozen JumpGrad policy with "
-            "the reproduced Wu2019 controller on the same FEM benchmark."
-        )
-    lines = [
-        "# JumpGrad visual preview",
-        "",
-        "![Passive, Wu2019, and JumpGrad beam vibration](passive_wu_jumpgrad.gif)",
-        "",
-        "Beam vibration under passive friction, Wu2019 control, and JumpGrad at "
-        "the same held-out operating condition. Wu2019 here refers to the reproduced "
-        "control method on the same FEM benchmark.",
-        "",
-        f"Held-out condition: `F/F0={representative['forcing_ratio']:.1f}`, "
-        f"`omega/omega_r={representative['frequency_ratio']:.2f}`.",
-        "",
-        "![JumpGrad architecture](architecture.png)",
-        "",
-        "JumpGrad composes PyTorch autograd with a CRN-FD physics VJP across the "
-        "hard Markov and JAX-FEM boundary.",
-        "",
-        "![Resonance comparison](main_results.png)",
-        "",
-        result_caption,
-        "",
-        "![JumpGrad gradient story](gradient_story.png)",
-        "",
-        "Direct AD returns zero through hard switching, while CRN-FD recovers a "
-        "usable direction and the fixed monitor falls during end-to-end training.",
-        "",
-        "![Wu2019 and JumpGrad control signals](wu_vs_jumpgrad_control.gif)",
-        "",
-        "Wu2019 uses smooth periodic preload modulation; JumpGrad acts through a "
-        "genuinely discrete LOW/HIGH switching path.",
-        "",
-        "![Condition-aware JumpGrad controller map](controller_map.png)",
-        "",
-        "The final MLP maps each operating condition to its own switching-law "
-        "coefficients; arrow direction and length encode q phase and magnitude.",
-        "",
-    ]
-    preview = "\n".join(lines)
-    forbidden = ("lr=0.1", "Fixed q", "best binary")
-    if any(text in preview for text in forbidden):
-        raise AssertionError("preview contains an excluded visualization baseline")
-    PREVIEW_PATH.write_text(preview)
-
-
 def validate_gif(path: Path, expected_frames: int = NUM_GIF_FRAMES) -> tuple[int, tuple[int, int]]:
     """Validate GitHub-compatible animation metadata."""
     with Image.open(path) as image:
@@ -904,9 +725,6 @@ def main() -> None:
     render_control_gif(replay)
     main_results = render_main_results(sources, jumpgrad_frf)
     render_gradient_story(sources["j1"])
-    render_architecture()
-    render_controller_map(sources["j1"])
-    write_preview(replay, main_results)
     _validate_outputs(replay)
     print(
         f"jumpgrad_peak={main_results['peaks']['jumpgrad']['amplitude']:.12g} "

@@ -97,13 +97,19 @@ def test_gif_contract_and_visual_asset_order(tmp_path: Path):
         loop=0,
     )
     assert visuals.validate_gif(path) == (100, (4, 3))
-    assert visuals.PREVIEW_ASSETS == (
+    expected = (
         "passive_wu_jumpgrad.gif",
-        "architecture.png",
+        "wu_vs_jumpgrad_control.gif",
         "main_results.png",
         "gradient_story.png",
-        "wu_vs_jumpgrad_control.gif",
-        "controller_map.png",
     )
-    assert len(visuals.EXPECTED_OUTPUTS) == 7
+    assert tuple(path.name for path in visuals.EXPECTED_OUTPUTS) == expected
+    actual = tuple(
+        path.name
+        for path in visuals.OUTPUT_DIRECTORY.iterdir()
+        if path.is_file()
+    )
+    assert set(actual) == set(expected)
+    assert visuals.validate_gif(visuals.MAIN_GIF_PATH)[0] == 100
+    assert visuals.validate_gif(visuals.CONTROL_GIF_PATH)[0] == 100
     assert set(visuals.METHOD_LABELS.values()) == {"Passive", "Wu2019", "JumpGrad"}
