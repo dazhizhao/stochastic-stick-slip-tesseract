@@ -1,0 +1,3 @@
+name: wu_v2_markov_fem
+version: 0.1.0
+description: Condition-wise hard-Markov JAX-FEM with a CRN-FD custom VJP.

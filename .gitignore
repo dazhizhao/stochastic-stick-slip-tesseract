@@ -194,6 +194,15 @@ outputs/wu_v2_binary_comparator/*
 !outputs/wu_v2_binary_comparator/binary_comparator.md
 !outputs/wu_v2_binary_comparator/binary_comparator.png
 
+# Condition-aware mixed-gradient JumpGrad system
+!outputs/jumpgrad_end_to_end/
+outputs/jumpgrad_end_to_end/*
+!outputs/jumpgrad_end_to_end/results.json
+!outputs/jumpgrad_end_to_end/summary.md
+!outputs/jumpgrad_end_to_end/optimization.png
+!outputs/jumpgrad_end_to_end/held_out.png
+!outputs/jumpgrad_end_to_end/architecture.png
+
 # Model / checkpoint files
 *.ckpt
 *.pth
