@@ -203,6 +203,17 @@ outputs/jumpgrad_end_to_end/*
 !outputs/jumpgrad_end_to_end/held_out.png
 !outputs/jumpgrad_end_to_end/architecture.png
 
+# Final JumpGrad visualization package
+!outputs/jumpgrad_visuals/
+outputs/jumpgrad_visuals/*
+!outputs/jumpgrad_visuals/passive_wu_jumpgrad.gif
+!outputs/jumpgrad_visuals/wu_vs_jumpgrad_control.gif
+!outputs/jumpgrad_visuals/main_results.png
+!outputs/jumpgrad_visuals/gradient_story.png
+!outputs/jumpgrad_visuals/architecture.png
+!outputs/jumpgrad_visuals/controller_map.png
+!outputs/jumpgrad_visuals/preview.md
+
 # Model / checkpoint files
 *.ckpt
 *.pth
