@@ -10,7 +10,9 @@ from stochastic_stick_slip.model import (
 from stochastic_stick_slip.wu_v2 import (
     DIAGNOSTIC_NUM_PERIODS,
     DIAGNOSTIC_PRELOAD_VALUES,
+    FINAL_REFINEMENT_RATIOS,
     FORCING_AMPLITUDE,
+    LOCAL_FRF_RATIOS,
     PHASES,
     REPAIR_NUM_PERIODS,
     REPAIR_PRELOAD_VALUES,
@@ -170,3 +172,29 @@ def test_frf_peak_indices_are_selected_per_preload_row() -> None:
         ]
     )
     assert np.array_equal(frf_peak_indices(amplitudes), [1, 0, 3])
+
+
+def test_final_gate_frequency_grids_are_frozen() -> None:
+    assert np.array_equal(
+        FINAL_REFINEMENT_RATIOS, np.linspace(1.150, 1.200, 11)
+    )
+    assert np.array_equal(LOCAL_FRF_RATIOS, np.linspace(0.95, 1.05, 11))
+
+
+def test_local_frf_harmonic_tracks_frequency_at_fixed_phase() -> None:
+    phase = 0.37
+    for omega in (1.10 * SYSTEM.omega_1, 1.20 * SYSTEM.omega_1):
+        _, times = excitation_grid(omega, DIAGNOSTIC_NUM_PERIODS)
+        preload = harmonic_preload(
+            0.04,
+            omega,
+            2,
+            np.asarray([phase]),
+            DIAGNOSTIC_NUM_PERIODS,
+        )
+        expected = 0.04 * (1.0 + 0.25 * np.sin(2.0 * omega * times + phase))
+        assert preload.shape == (1, 2400, 2)
+        assert np.allclose(preload[0, :, 0], expected)
+        assert np.array_equal(preload[:, :, 0], preload[:, :, 1])
+        assert np.min(preload) >= 0.03 - 1e-14
+        assert np.max(preload) <= 0.05 + 1e-14
