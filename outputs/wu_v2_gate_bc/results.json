@@ -1,0 +1,383 @@
+{
+  "configuration": {
+    "mesh": "32x4 QUAD4",
+    "num_free_dofs": 320,
+    "damping": 0.1,
+    "forcing_amplitude": 0.02,
+    "omega_r": 4.082280083033107,
+    "omega_r_ratio": 1.19,
+    "num_periods": 24,
+    "steps_per_period": 100,
+    "preload_low": 0.03,
+    "preload_high": 0.05,
+    "fd_epsilon": 0.02,
+    "markov_base_seed": 20260819,
+    "condition_labels": [
+      11,
+      23,
+      37,
+      41,
+      53,
+      67,
+      79,
+      97
+    ],
+    "all_realizations_share_nominal_forcing": true,
+    "streams": {
+      "bank_a": 0,
+      "bank_b": 1,
+      "training": 2,
+      "fixed_evaluation": 3
+    },
+    "bank_a_realizations": 32,
+    "bank_b_realizations": 32,
+    "training_realizations_per_update": 32,
+    "fixed_evaluation_realizations": 64,
+    "cosine_threshold": 0.5
+  },
+  "wu_references": {
+    "passive": 0.18748720511761185,
+    "best_deterministic_1omega": 0.18619741692302327,
+    "best_deterministic_2omega": 0.146977152439771,
+    "best_deterministic_2omega_phase": 4.516039439535327,
+    "stochastic_gate_a_neutral": 0.1804140217112129
+  },
+  "gate_b": {
+    "bank_a": {
+      "gradient": [
+        0.036251177508035,
+        0.013172688055691772
+      ],
+      "l2_norm": 0.03857029402703105,
+      "finite": true,
+      "nonzero": true,
+      "plus_objectives": [
+        0.18294989395721703,
+        0.1821501102644964
+      ],
+      "minus_objectives": [
+        0.18149984685689563,
+        0.18162320274226873
+      ],
+      "mode_difference_counts": [
+        31,
+        32
+      ]
+    },
+    "bank_b": {
+      "gradient": [
+        0.004067559784137753,
+        0.0069921452797584716
+      ],
+      "l2_norm": 0.008089198860875127,
+      "finite": true,
+      "nonzero": true,
+      "plus_objectives": [
+        0.18221317332810943,
+        0.1824218650564927
+      ],
+      "minus_objectives": [
+        0.18205047093674392,
+        0.18214217924530235
+      ],
+      "mode_difference_counts": [
+        32,
+        32
+      ]
+    },
+    "bank_a_matches_gate_a": true,
+    "cosine": 0.7678110480808537,
+    "component_same_sign": [
+      true,
+      true
+    ],
+    "result": "PASS",
+    "reason": "Independent-bank gradient cosine 0.767811 exceeds 0.5."
+  },
+  "optimization": {
+    "optimizer": {
+      "name": "Adam",
+      "learning_rate": 0.01,
+      "betas": [
+        0.9,
+        0.999
+      ],
+      "epsilon": 1e-08,
+      "num_updates": 20,
+      "selected_iteration": 20
+    },
+    "history": [
+      {
+        "iteration": 0,
+        "q": [
+          0.0,
+          0.0
+        ],
+        "sampled_train_amplitude": 0.1814016217326208,
+        "fixed_evaluation_amplitude": 0.18171338698797546,
+        "gradient_norm": null,
+        "training_bank_iteration": 0
+      },
+      {
+        "iteration": 1,
+        "q": [
+          -0.009999998591919641,
+          -0.009999994173042486
+        ],
+        "sampled_train_amplitude": 0.1807721182120073,
+        "fixed_evaluation_amplitude": 0.18114390908016026,
+        "gradient_norm": 0.07306279020687816,
+        "training_bank_iteration": 0
+      },
+      {
+        "iteration": 2,
+        "q": [
+          -0.009313082367605491,
+          -0.015676243343544727
+        ],
+        "sampled_train_amplitude": 0.1828454936361445,
+        "fixed_evaluation_amplitude": 0.18136741841604404,
+        "gradient_norm": 0.07337288712950986,
+        "training_bank_iteration": 1
+      },
+      {
+        "iteration": 3,
+        "q": [
+          -0.009905838491678942,
+          -0.01200233104129862
+        ],
+        "sampled_train_amplitude": 0.18359056855367265,
+        "fixed_evaluation_amplitude": 0.18128551736673904,
+        "gradient_norm": 0.03817829615617607,
+        "training_bank_iteration": 2
+      },
+      {
+        "iteration": 4,
+        "q": [
+          -0.012278485448504097,
+          -0.005570017850217645
+        ],
+        "sampled_train_amplitude": 0.18268773031734337,
+        "fixed_evaluation_amplitude": 0.18186573505164577,
+        "gradient_norm": 0.13054038528315084,
+        "training_bank_iteration": 3
+      },
+      {
+        "iteration": 5,
+        "q": [
+          -0.01749529195794417,
+          0.0009781096053703905
+        ],
+        "sampled_train_amplitude": 0.18104597077707088,
+        "fixed_evaluation_amplitude": 0.18319940088593975,
+        "gradient_norm": 0.1091174471178287,
+        "training_bank_iteration": 4
+      },
+      {
+        "iteration": 6,
+        "q": [
+          -0.01957929088563299,
+          0.004166391598179593
+        ],
+        "sampled_train_amplitude": 0.1821126187338585,
+        "fixed_evaluation_amplitude": 0.18291409534720326,
+        "gradient_norm": 0.08578186612063898,
+        "training_bank_iteration": 5
+      },
+      {
+        "iteration": 7,
+        "q": [
+          -0.021582005738672253,
+          0.007992362097631909
+        ],
+        "sampled_train_amplitude": 0.18384093212257518,
+        "fixed_evaluation_amplitude": 0.18255291841276217,
+        "gradient_norm": 0.03326562576555683,
+        "training_bank_iteration": 6
+      },
+      {
+        "iteration": 8,
+        "q": [
+          -0.023146884748642738,
+          0.01080703837159459
+        ],
+        "sampled_train_amplitude": 0.18175468038644893,
+        "fixed_evaluation_amplitude": 0.18210708024825292,
+        "gradient_norm": 0.017598575405972112,
+        "training_bank_iteration": 7
+      },
+      {
+        "iteration": 9,
+        "q": [
+          -0.025241105666108505,
+          0.014026363130482195
+        ],
+        "sampled_train_amplitude": 0.1818085299134003,
+        "fixed_evaluation_amplitude": 0.18188475392907322,
+        "gradient_norm": 0.033848623238127276,
+        "training_bank_iteration": 8
+      },
+      {
+        "iteration": 10,
+        "q": [
+          -0.027438223131072772,
+          0.017192409366228276
+        ],
+        "sampled_train_amplitude": 0.18424407654260594,
+        "fixed_evaluation_amplitude": 0.1816012160934572,
+        "gradient_norm": 0.014793517060989709,
+        "training_bank_iteration": 9
+      },
+      {
+        "iteration": 11,
+        "q": [
+          -0.029172759024330523,
+          0.020880136281841877
+        ],
+        "sampled_train_amplitude": 0.18188411996001774,
+        "fixed_evaluation_amplitude": 0.1816715114399422,
+        "gradient_norm": 0.029998123030978242,
+        "training_bank_iteration": 10
+      },
+      {
+        "iteration": 12,
+        "q": [
+          -0.031329069348280295,
+          0.02328158305702751
+        ],
+        "sampled_train_amplitude": 0.18181090115464038,
+        "fixed_evaluation_amplitude": 0.1819017097426986,
+        "gradient_norm": 0.03526430200729388,
+        "training_bank_iteration": 11
+      },
+      {
+        "iteration": 13,
+        "q": [
+          -0.03342333407768931,
+          0.025690408882386526
+        ],
+        "sampled_train_amplitude": 0.18144685549614392,
+        "fixed_evaluation_amplitude": 0.18144185211167674,
+        "gradient_norm": 0.00963206437197764,
+        "training_bank_iteration": 12
+      },
+      {
+        "iteration": 14,
+        "q": [
+          -0.03523009037425437,
+          0.026731207325016725
+        ],
+        "sampled_train_amplitude": 0.1816710206705508,
+        "fixed_evaluation_amplitude": 0.18201020404502918,
+        "gradient_norm": 0.036171145376499576,
+        "training_bank_iteration": 13
+      },
+      {
+        "iteration": 15,
+        "q": [
+          -0.037081509824123914,
+          0.027184243831205056
+        ],
+        "sampled_train_amplitude": 0.18147395548985118,
+        "fixed_evaluation_amplitude": 0.1819691712354472,
+        "gradient_norm": 0.017823379199549714,
+        "training_bank_iteration": 14
+      },
+      {
+        "iteration": 16,
+        "q": [
+          -0.03874231967329488,
+          0.027970103525038995
+        ],
+        "sampled_train_amplitude": 0.18116430309918882,
+        "fixed_evaluation_amplitude": 0.18195077539999935,
+        "gradient_norm": 0.012521148905932929,
+        "training_bank_iteration": 15
+      },
+      {
+        "iteration": 17,
+        "q": [
+          -0.040094968316788195,
+          0.028995652286899723
+        ],
+        "sampled_train_amplitude": 0.18193176819796725,
+        "fixed_evaluation_amplitude": 0.18178838143183135,
+        "gradient_norm": 0.011614465182218812,
+        "training_bank_iteration": 16
+      },
+      {
+        "iteration": 18,
+        "q": [
+          -0.04301125192103851,
+          0.028648145926606607
+        ],
+        "sampled_train_amplitude": 0.18329521671483037,
+        "fixed_evaluation_amplitude": 0.18156238554485857,
+        "gradient_norm": 0.07664194458391146,
+        "training_bank_iteration": 17
+      },
+      {
+        "iteration": 19,
+        "q": [
+          -0.04558965915424676,
+          0.02892592619483412
+        ],
+        "sampled_train_amplitude": 0.1831714838210628,
+        "fixed_evaluation_amplitude": 0.18182779739569982,
+        "gradient_norm": 0.02010357475717056,
+        "training_bank_iteration": 18
+      },
+      {
+        "iteration": 20,
+        "q": [
+          -0.048738584933015125,
+          0.028881136427706275
+        ],
+        "sampled_train_amplitude": 0.1791510798460063,
+        "fixed_evaluation_amplitude": 0.18201627527643133,
+        "gradient_norm": 0.031656646523894,
+        "training_bank_iteration": 19
+      }
+    ],
+    "initial_fixed_evaluation_amplitude": 0.18171338698797546,
+    "final_fixed_evaluation_amplitude": 0.18201627527643133,
+    "relative_improvement_percent": -0.1666846309325105,
+    "recovered_fraction": -0.00871966384368878
+  },
+  "learned_policy": {
+    "q20": [
+      -0.048738584933015125,
+      0.028881136427706275
+    ],
+    "magnitude": 0.0566530643710339,
+    "coefficient_phase": 2.6066525824923485,
+    "phase_convention": "h=R*cos(2*omega*t-coefficient_phase)",
+    "deterministic_best_2omega_phase": 4.516039439535327
+  },
+  "markov_diagnostics": {
+    "iteration_0": {
+      "high_occupancy_per_contact": [
+        0.5066210937500002,
+        0.5160026041666665
+      ],
+      "mean_transitions_per_trajectory_contact": [
+        95.9375,
+        94.578125
+      ]
+    },
+    "iteration_20": {
+      "high_occupancy_per_contact": [
+        0.5117708333333335,
+        0.5038932291666667
+      ],
+      "mean_transitions_per_trajectory_contact": [
+        95.703125,
+        94.6875
+      ]
+    }
+  },
+  "gate_c": {
+    "result": "FAIL",
+    "reason": "Iteration 20 did not reduce the fixed-evaluation mean amplitude."
+  }
+}

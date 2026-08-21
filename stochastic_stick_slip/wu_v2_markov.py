@@ -25,8 +25,18 @@ NUM_REALIZATIONS = 4
 NUM_STEPS = DIAGNOSTIC_NUM_PERIODS * STEPS_PER_PERIOD
 
 
-def markov_uniform_bank() -> np.ndarray:
-    """Return the fixed [condition, realization, time+1, contact] tapes."""
+def markov_uniform_bank(
+    num_realizations: int = NUM_REALIZATIONS,
+    stream_id: int = 0,
+    iteration: int = 0,
+) -> np.ndarray:
+    """Return deterministic [condition, realization, time+1, contact] tapes."""
+    def seed_entropy(condition: int, realization: int, contact: int):
+        entropy = [MARKOV_BASE_SEED, condition, realization, contact]
+        if stream_id != 0 or iteration != 0:
+            entropy.extend((stream_id, iteration))
+        return entropy
+
     return np.stack(
         [
             np.stack(
@@ -35,24 +45,29 @@ def markov_uniform_bank() -> np.ndarray:
                         [
                             np.random.default_rng(
                                 np.random.SeedSequence(
-                                    [
-                                        MARKOV_BASE_SEED,
-                                        int(condition),
-                                        realization,
-                                        contact,
-                                    ]
+                                    seed_entropy(
+                                        int(condition), realization, contact
+                                    )
                                 )
                             ).uniform(0.0, 1.0, size=NUM_STEPS + 1)
                             for contact in range(2)
                         ],
                         axis=-1,
                     )
-                    for realization in range(NUM_REALIZATIONS)
+                    for realization in range(num_realizations)
                 ]
             )
             for condition in CONDITION_LABELS
         ]
     )
+
+
+def policy_polar_coordinates(q: np.ndarray | jax.Array) -> tuple[float, float]:
+    """Return magnitude and wrapped coefficient angle atan2(b2, a2)."""
+    q = np.asarray(q, dtype=np.float64)
+    magnitude = float(np.linalg.norm(q))
+    phase = float(np.mod(np.arctan2(q[1], q[0]), 2.0 * np.pi))
+    return magnitude, phase
 
 
 def two_omega_signal(q: jax.Array, times: jax.Array, omega: jax.Array):

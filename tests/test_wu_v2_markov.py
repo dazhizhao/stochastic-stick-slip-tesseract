@@ -2,6 +2,7 @@ import inspect
 
 import jax.numpy as jnp
 import numpy as np
+import torch
 
 import stochastic_stick_slip.wu_v2_markov as markov
 from stochastic_stick_slip.model import STEPS_PER_PERIOD
@@ -50,6 +51,19 @@ def test_fixed_tapes_are_reproducible_and_contacts_are_independent() -> None:
     assert np.array_equal(first, repeated)
     assert not np.array_equal(first[..., 0], first[..., 1])
     assert np.any((first[..., 0, 0] < 0.5) != (first[..., 0, 1] < 0.5))
+
+
+def test_markov_streams_iterations_and_evaluation_bank_are_independent() -> None:
+    bank_a = markov.markov_uniform_bank()
+    bank_b = markov.markov_uniform_bank(stream_id=1)
+    training_0 = markov.markov_uniform_bank(stream_id=2, iteration=0)
+    training_1 = markov.markov_uniform_bank(stream_id=2, iteration=1)
+    evaluation = markov.markov_uniform_bank(8, stream_id=3, iteration=0)
+    assert evaluation.shape == (8, 8, 2401, 2)
+    assert not np.array_equal(bank_a, bank_b)
+    assert not np.array_equal(bank_b, training_0)
+    assert not np.array_equal(training_0, training_1)
+    assert not np.array_equal(evaluation[:, :4], training_0)
 
 
 def test_wu_objective_uses_cycles_21_to_24() -> None:
@@ -122,3 +136,67 @@ def test_reduced_bank_direct_ad_and_crn_fd_are_finite() -> None:
         )
     ]
     assert np.allclose(replays, replays[0], rtol=1e-12, atol=1e-14)
+
+
+def test_gate_a_bank_gradient_is_reproduced() -> None:
+    omega = 1.19 * SYSTEM.omega_1
+    time_step, forcing = single_tone_forcing(
+        FORCING_AMPLITUDE, omega, DIAGNOSTIC_NUM_PERIODS
+    )
+    times = time_step * np.arange(1, markov.NUM_STEPS + 1)
+    result = markov.crn_centered_fd(
+        np.zeros(2),
+        forcing,
+        markov.markov_uniform_bank(4, stream_id=0, iteration=0),
+        times,
+        omega,
+        time_step,
+    )
+    assert np.allclose(
+        result["gradient"],
+        [0.036251177508035, 0.013172688055691772],
+        rtol=1e-12,
+        atol=1e-14,
+    )
+
+
+def test_one_adam_update_and_fixed_evaluation_are_finite_and_repeatable() -> None:
+    omega = 1.19 * SYSTEM.omega_1
+    time_step, forcing = single_tone_forcing(
+        FORCING_AMPLITUDE, omega, DIAGNOSTIC_NUM_PERIODS
+    )
+    times = time_step * np.arange(1, markov.NUM_STEPS + 1)
+    training = markov.markov_uniform_bank(stream_id=2, iteration=0)[:1, :1]
+    evaluation = markov.markov_uniform_bank(8, stream_id=3)[:1, :1]
+    q = torch.nn.Parameter(torch.zeros(2, dtype=torch.float64))
+    optimizer = torch.optim.Adam([q], lr=0.01)
+    fd = markov.crn_centered_fd(
+        q.detach().numpy(),
+        forcing,
+        training,
+        times,
+        omega,
+        time_step,
+    )
+    optimizer.zero_grad(set_to_none=True)
+    q.grad = torch.from_numpy(np.asarray(fd["gradient"]).copy())
+    optimizer.step()
+    first = markov.evaluate_markov_bank(
+        q.detach().numpy(), forcing, evaluation, times, omega, time_step
+    )
+    repeated = markov.evaluate_markov_bank(
+        q.detach().numpy(), forcing, evaluation, times, omega, time_step
+    )
+    first_objectives = np.asarray(first["trajectory_objectives"])
+    repeated_objectives = np.asarray(repeated["trajectory_objectives"])
+    assert np.all(np.isfinite(q.detach().numpy()))
+    assert np.all(np.isfinite(first_objectives))
+    assert np.array_equal(first_objectives, repeated_objectives)
+
+
+def test_policy_polar_coordinates() -> None:
+    magnitude, phase = markov.policy_polar_coordinates(np.asarray([3.0, 4.0]))
+    assert magnitude == 5.0
+    assert phase == np.arctan2(4.0, 3.0)
+    _, wrapped = markov.policy_polar_coordinates(np.asarray([0.0, -1.0]))
+    assert wrapped == 1.5 * np.pi
