@@ -159,6 +159,12 @@ outputs/wu_v2_gate0_repair/*
 !outputs/wu_v2_gate0_repair/results.json
 !outputs/wu_v2_gate0_repair/gate0_repair_summary.png
 
+# Wu-style V2 passive FRF diagnostic
+!outputs/wu_v2_passive_diagnostic/
+outputs/wu_v2_passive_diagnostic/*
+!outputs/wu_v2_passive_diagnostic/results.json
+!outputs/wu_v2_passive_diagnostic/passive_frf_diagnostic.png
+
 # Model / checkpoint files
 *.ckpt
 *.pth

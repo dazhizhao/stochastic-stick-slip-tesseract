@@ -21,6 +21,8 @@ REFERENCE_PRELOAD = 0.04
 PRELOAD_VALUES = np.arange(0.025, 0.055 + 1e-12, 0.005)
 REPAIR_NUM_PERIODS = 16
 REPAIR_PRELOAD_VALUES = np.arange(0.0, 0.060 + 1e-12, 0.005)
+DIAGNOSTIC_NUM_PERIODS = 24
+DIAGNOSTIC_PRELOAD_VALUES = np.arange(0.0, 0.060 + 1e-12, 0.010)
 COARSE_FREQUENCY_RATIOS = np.linspace(0.80, 1.60, 33)
 FINE_FREQUENCY_HALF_WIDTH = 0.025
 FINE_FREQUENCY_POINTS = 11
@@ -156,3 +158,26 @@ def repair_steady_state_metrics(
         np.abs(final_window), 1e-15
     )
     return final_window, convergence, amplitudes
+
+
+def diagnostic_steady_state_metrics(
+    displacement: np.ndarray | jax.Array,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Return the registered 24-cycle diagnostic objective and steady error."""
+    amplitudes = cycle_amplitudes(displacement)
+    if amplitudes.shape[-1] != DIAGNOSTIC_NUM_PERIODS:
+        raise ValueError("Passive FRF diagnosis requires exactly 24 cycles")
+    previous_window = np.mean(amplitudes[..., 16:20], axis=-1)
+    final_window = np.mean(amplitudes[..., 20:24], axis=-1)
+    convergence = np.abs(final_window - previous_window) / np.maximum(
+        np.abs(final_window), 1e-15
+    )
+    return final_window, convergence, amplitudes
+
+
+def frf_peak_indices(steady_amplitudes: np.ndarray) -> np.ndarray:
+    """Return the frequency-column maximum for each preload row."""
+    values = np.asarray(steady_amplitudes, dtype=np.float64)
+    if values.ndim != 2:
+        raise ValueError("FRF amplitudes must have shape (preload, frequency)")
+    return np.argmax(values, axis=1)
