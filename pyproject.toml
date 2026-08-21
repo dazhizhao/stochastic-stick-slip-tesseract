@@ -20,6 +20,7 @@ dependencies = [
     "tesseract-jax>=0.4.1",
     "tesseract-torch>=0.1.0",
     "torch>=2.13.0",
+    "salib==1.5.2",
 ]
 
 [tool.pytest.ini_options]

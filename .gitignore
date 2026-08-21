@@ -171,6 +171,14 @@ outputs/wu_v2_gate0_final/*
 !outputs/wu_v2_gate0_final/results.json
 !outputs/wu_v2_gate0_final/gate0_final_summary.png
 
+# Wu2019 design-method reproduction on the frozen JAX-FEM benchmark
+!outputs/wu2019_reproduction/
+outputs/wu2019_reproduction/*
+!outputs/wu2019_reproduction/wu_method_summary.png
+!outputs/wu2019_reproduction/excitation_range.png
+!outputs/wu2019_reproduction/scorecard.json
+!outputs/wu2019_reproduction/scorecard.md
+
 # Model / checkpoint files
 *.ckpt
 *.pth

@@ -412,6 +412,7 @@ def _select_contact_regime(
 def _build_mechanics_batch_impl(
     system: FEMSystem,
     return_full_displacement: bool,
+    return_friction_work: bool,
 ):
     def simulate_batch_impl(
         damping: jax.Array,
@@ -471,6 +472,9 @@ def _build_mechanics_batch_impl(
                     contact_displacement + contact_force / CONTACT_STIFFNESS,
                     slider_position,
                 )
+                dissipated_friction_work = jnp.abs(
+                    contact_force * (next_slider_position - slider_position)
+                )
                 stick_to_slip = jnp.logical_and(
                     jnp.logical_not(was_slipping), is_slipping
                 )
@@ -492,6 +496,8 @@ def _build_mechanics_batch_impl(
                 )
                 if return_full_displacement:
                     output = output + (displacement_vector,)
+                if return_friction_work:
+                    output = output + (dissipated_friction_work,)
                 return next_state, output
 
             _, outputs = jax.lax.scan(
@@ -507,10 +513,11 @@ def _build_mechanics_batch_impl(
 def build_mechanics_batch_simulator(
     system: FEMSystem,
     return_full_displacement: bool = False,
+    return_friction_work: bool = False,
 ):
     """Build hard mechanics driven only by forcing and contact preloads."""
     implementation = _build_mechanics_batch_impl(
-        system, return_full_displacement
+        system, return_full_displacement, return_friction_work
     )
 
     def simulate_batch(damping, forcing, preload):
@@ -527,10 +534,13 @@ def build_mechanics_batch_simulator(
 def build_variable_time_step_mechanics_batch_simulator(
     system: FEMSystem,
     return_full_displacement: bool = False,
+    return_friction_work: bool = False,
 ):
     """Build the same hard mechanics with an explicit scalar time step."""
     return jax.jit(
-        _build_mechanics_batch_impl(system, return_full_displacement)
+        _build_mechanics_batch_impl(
+            system, return_full_displacement, return_friction_work
+        )
     )
 
 
