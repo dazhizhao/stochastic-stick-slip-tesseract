@@ -30,14 +30,44 @@ LANDSCAPE_PHASES = 2.0 * np.pi * np.arange(16, dtype=np.float64) / 16.0
 
 def deterministic_binary_preload(
     omega: float,
-    phase: float,
+    phase: float | np.ndarray,
     num_periods: int = DIAGNOSTIC_NUM_PERIODS,
 ) -> np.ndarray:
-    """Quantize the frozen deterministic two-omega command to LOW/HIGH."""
+    """Quantize one or more deterministic two-omega commands to LOW/HIGH."""
     _, times = excitation_grid(omega, num_periods)
-    high = np.sin(2.0 * float(omega) * times + float(phase)) >= 0.0
+    phases = np.atleast_1d(np.asarray(phase, dtype=np.float64))
+    if phases.ndim != 1:
+        raise ValueError("phase must be a scalar or one-dimensional array")
+    high = (
+        np.sin(
+            2.0 * float(omega) * times[None, :]
+            + phases[:, None]
+        )
+        >= 0.0
+    )
     scalar = np.where(high, PRELOAD_HIGH, PRELOAD_LOW)
-    return np.repeat(scalar[None, :, None], 2, axis=2)
+    return np.repeat(scalar[:, :, None], 2, axis=2)
+
+
+def deterministic_policy_hard_limit_preload(
+    omega: float,
+    q: np.ndarray,
+    num_periods: int = DIAGNOSTIC_NUM_PERIODS,
+) -> np.ndarray:
+    """Return the deterministic HIGH state where the Markov score is nonnegative."""
+    _, times = excitation_grid(omega, num_periods)
+    coefficients = np.asarray(q, dtype=np.float64)
+    if coefficients.ndim == 1:
+        coefficients = coefficients[None, :]
+    if coefficients.ndim != 2 or coefficients.shape[1] != 2:
+        raise ValueError("q must have shape (2,) or (batch, 2)")
+    argument = 2.0 * float(omega) * times[None, :]
+    signal = (
+        coefficients[:, 0, None] * np.cos(argument)
+        + coefficients[:, 1, None] * np.sin(argument)
+    )
+    scalar = np.where(signal >= 0.0, PRELOAD_HIGH, PRELOAD_LOW)
+    return np.repeat(scalar[:, :, None], 2, axis=2)
 
 
 def landscape_polar_grid() -> tuple[np.ndarray, np.ndarray, np.ndarray]:

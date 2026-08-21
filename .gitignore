@@ -187,6 +187,13 @@ outputs/wu_v2_head_to_head/*
 !outputs/wu_v2_head_to_head/head_to_head_frf.png
 !outputs/wu_v2_head_to_head/learned_switching_policy.png
 
+# Phase-optimized deterministic Wu-V2 binary comparator
+!outputs/wu_v2_binary_comparator/
+outputs/wu_v2_binary_comparator/*
+!outputs/wu_v2_binary_comparator/results.json
+!outputs/wu_v2_binary_comparator/binary_comparator.md
+!outputs/wu_v2_binary_comparator/binary_comparator.png
+
 # Model / checkpoint files
 *.ckpt
 *.pth
