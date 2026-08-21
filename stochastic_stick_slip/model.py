@@ -409,18 +409,17 @@ def _select_contact_regime(
     return contact_force, contact_displacement, regime
 
 
-def build_mechanics_batch_simulator(
+def _build_mechanics_batch_impl(
     system: FEMSystem,
-    return_full_displacement: bool = False,
+    return_full_displacement: bool,
 ):
-    """Build hard mechanics driven only by forcing and contact preloads."""
-
     def simulate_batch_impl(
         damping: jax.Array,
         forcing: jax.Array,
         preload: jax.Array,
+        time_step: jax.Array,
     ):
-        dt = system.time_step
+        dt = time_step
         mass = system.mass
         stiffness = system.stiffness
         load = system.load
@@ -502,7 +501,37 @@ def build_mechanics_batch_simulator(
 
         return jax.vmap(simulate_seed)(forcing, preload)
 
-    return jax.jit(simulate_batch_impl)
+    return simulate_batch_impl
+
+
+def build_mechanics_batch_simulator(
+    system: FEMSystem,
+    return_full_displacement: bool = False,
+):
+    """Build hard mechanics driven only by forcing and contact preloads."""
+    implementation = _build_mechanics_batch_impl(
+        system, return_full_displacement
+    )
+
+    def simulate_batch(damping, forcing, preload):
+        return implementation(
+            damping,
+            forcing,
+            preload,
+            jnp.asarray(system.time_step, dtype=jnp.float64),
+        )
+
+    return jax.jit(simulate_batch)
+
+
+def build_variable_time_step_mechanics_batch_simulator(
+    system: FEMSystem,
+    return_full_displacement: bool = False,
+):
+    """Build the same hard mechanics with an explicit scalar time step."""
+    return jax.jit(
+        _build_mechanics_batch_impl(system, return_full_displacement)
+    )
 
 
 def build_batch_simulator(system: FEMSystem, fourier_basis: jax.Array):

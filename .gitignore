@@ -147,6 +147,12 @@ outputs/markov_jump_ablation/*
 !outputs/markov_jump_ablation/results.json
 !outputs/markov_jump_ablation/ablation_summary.png
 
+# Wu-style V2 Gate 0 engineering-authority result
+!outputs/wu_v2_gate0/
+outputs/wu_v2_gate0/*
+!outputs/wu_v2_gate0/results.json
+!outputs/wu_v2_gate0/gate0_summary.png
+
 # Model / checkpoint files
 *.ckpt
 *.pth
