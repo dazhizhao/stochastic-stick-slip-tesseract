@@ -179,6 +179,14 @@ outputs/wu2019_reproduction/*
 !outputs/wu2019_reproduction/scorecard.json
 !outputs/wu2019_reproduction/scorecard.md
 
+# Wu-V2 stochastic Markov versus Wu-style deterministic head-to-head
+!outputs/wu_v2_head_to_head/
+outputs/wu_v2_head_to_head/*
+!outputs/wu_v2_head_to_head/results.json
+!outputs/wu_v2_head_to_head/head_to_head.md
+!outputs/wu_v2_head_to_head/head_to_head_frf.png
+!outputs/wu_v2_head_to_head/learned_switching_policy.png
+
 # Model / checkpoint files
 *.ckpt
 *.pth
