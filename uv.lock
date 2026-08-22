@@ -1653,7 +1653,7 @@ requires-dist = [
     { name = "pyfiglet", specifier = ">=1.0.4" },
     { name = "salib", specifier = "==1.5.2" },
     { name = "scipy", specifier = ">=1.18.0" },
-    { name = "tesseract-core", extras = ["runtime"], specifier = ">=1.11.0" },
+    { name = "tesseract-core", extras = ["runtime"], git = "https://github.com/dazhizhao/tesseract-core.git?rev=43fe09bd8ef1a96569e8499d022482d1ae4ce1de" },
     { name = "tesseract-jax", specifier = ">=0.4.1" },
     { name = "tesseract-torch", specifier = ">=0.1.0" },
     { name = "torch", specifier = ">=2.13.0" },
@@ -1676,8 +1676,8 @@ wheels = [
 
 [[package]]
 name = "tesseract-core"
-version = "1.11.0"
-source = { registry = "https://pypi.org/simple" }
+version = "0.0.1.dev498+unknown.g43fe09bd8"
+source = { git = "https://github.com/dazhizhao/tesseract-core.git?rev=43fe09bd8ef1a96569e8499d022482d1ae4ce1de#43fe09bd8ef1a96569e8499d022482d1ae4ce1de" }
 dependencies = [
     { name = "jinja2" },
     { name = "numpy" },
@@ -1690,10 +1690,6 @@ dependencies = [
     { name = "requests" },
     { name = "rich" },
     { name = "typer" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/3a/1a/1aba5154054eae960e54f5f54793798353fc00f1acdbb1893ac10ada8b34/tesseract_core-1.11.0.tar.gz", hash = "sha256:472f1fd4e20380c9fc0e55b60d9ced22265ebda1adef152232aad11c5ce17299", size = 1333520, upload-time = "2026-07-23T11:19:57.609Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/c0/fa/671197ba633ab6e9dd0e7e1a880c003279ac093726a9876fb20f1080e365/tesseract_core-1.11.0-py3-none-any.whl", hash = "sha256:a88d95c5790c6820371b9107f584796586d42575f8c4f9e83a6ba9c52dda5c2e", size = 154767, upload-time = "2026-07-23T11:19:55.924Z" },
 ]
 
 [package.optional-dependencies]

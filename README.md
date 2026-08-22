@@ -31,6 +31,8 @@ The workflow contains two peer software components, and each component is a Tess
 
 The differentiable connection between the two blocks carries only the switching coefficients `q=[a2,b2]`; operating conditions and random tapes remain explicit ordinary inputs to the mechanics block. The backward interface returns the cotangent of `q`, allowing both derivative rules to participate in one end-to-end `loss.backward()` call. Tesseract is therefore the composition infrastructure, not a decorative wrapper inserted between the controller and mechanics.
 
+**Engineering contribution.** The mechanics block now uses an [independent-batch extension to Tesseract Core's generic finite-difference VJP](https://github.com/dazhizhao/tesseract-core/commit/43fe09bd8ef1a96569e8499d022482d1ae4ce1de). For batched `q[B,2]`, it perturbs one coefficient across all independent conditions at once, reducing centered differences from `4B` mechanics evaluations to four while leaving the explicit `markov_tapes` unchanged in every `+eps`/`-eps` pair.
+
 ## 3. From Wu2019 to hard switching
 
 We first reproduced the Wu2019 2ω friction-control method on the same JAX-FEM benchmark. Its smooth periodic preload modulation is a strong engineering baseline, reducing the sampled resonance peak by about 20.2% relative to passive friction.

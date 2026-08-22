@@ -158,7 +158,7 @@ def test_physics_tesseract_forward_and_crn_vjp(tesseracts) -> None:
     )["q"]
     assert np.all(np.isfinite(gradient))
     assert np.linalg.norm(gradient) > 0.0
-    assert np.allclose(gradient, expected, rtol=RTOL, atol=ATOL)
+    assert np.allclose(gradient, expected, rtol=1e-8, atol=1e-10)
 
 
 def test_composed_backward_and_adam_update(tesseracts) -> None:

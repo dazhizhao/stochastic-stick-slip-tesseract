@@ -9,12 +9,10 @@ from tesseract_core.runtime import (
     Int64,
     ShapeDType,
 )
+from tesseract_core.runtime.experimental import finite_difference_vjp
 
-from stochastic_stick_slip.jumpgrad import (
-    crn_fd_condition_gradient,
-    evaluate_jumpgrad_bank,
-)
-from stochastic_stick_slip.wu_v2_markov import NUM_STEPS
+from stochastic_stick_slip.jumpgrad import evaluate_jumpgrad_bank
+from stochastic_stick_slip.wu_v2_markov import FD_EPSILON, NUM_STEPS
 
 
 class InputSchema(BaseModel):
@@ -48,13 +46,19 @@ def vector_jacobian_product(
 ):
     if set(vjp_inputs) != {"q"} or set(vjp_outputs) != {"objectives"}:
         raise ValueError("Wu-V2 physics differentiates objectives with respect to q")
-    derivative = crn_fd_condition_gradient(
-        inputs.q, inputs.conditions, inputs.markov_tapes
-    )["gradient"]
     cotangent = np.asarray(cotangent_vector["objectives"], dtype=np.float64)
-    if cotangent.shape != derivative.shape[:1]:
+    if cotangent.shape != inputs.q.shape[:1]:
         raise ValueError("objective cotangent must have shape (condition,)")
-    return {"q": cotangent[:, None] * derivative}
+    return finite_difference_vjp(
+        apply,
+        inputs,
+        set(vjp_inputs),
+        set(vjp_outputs),
+        {"objectives": cotangent},
+        algorithm="central",
+        eps=FD_EPSILON,
+        independent_batch_axis=0,
+    )
 
 
 def abstract_eval(abstract_inputs):
