@@ -31,7 +31,7 @@ The workflow contains two peer software components, and each component is a Tess
 
 The differentiable connection between the two blocks carries only the switching coefficients `q=[a2,b2]`; operating conditions and random tapes remain explicit ordinary inputs to the mechanics block. The backward interface returns the cotangent of `q`, allowing both derivative rules to participate in one end-to-end `loss.backward()` call. Tesseract is therefore the composition infrastructure, not a decorative wrapper inserted between the controller and mechanics.
 
-**Engineering contribution.** The mechanics block now uses an [independent-batch extension to Tesseract Core's generic finite-difference VJP](https://github.com/dazhizhao/tesseract-core/commit/43fe09bd8ef1a96569e8499d022482d1ae4ce1de). For batched `q[B,2]`, it perturbs one coefficient across all independent conditions at once, reducing centered differences from `4B` mechanics evaluations to four while leaving the explicit `markov_tapes` unchanged in every `+eps`/`-eps` pair.
+**Bonus — we [forked and modified Tesseract Core](https://github.com/dazhizhao/tesseract-core/commit/43fe09bd8ef1a96569e8499d022482d1ae4ce1de).** The mechanics block uses our independent-batch extension to Core's generic finite-difference VJP. For batched `q[B,2]`, it perturbs one coefficient across all independent conditions at once, reducing centered differences from `4B` mechanics evaluations to four while leaving the explicit `markov_tapes` unchanged in every `+eps`/`-eps` pair.
 
 ## 3. From Wu2019 to hard switching
 
@@ -80,14 +80,14 @@ During the backward pass, the mechanics Tesseract estimates the cotangent of `q`
 </p>
 
 <p align="center">
-  <img src="outputs/jumpgrad_visuals/held_out.png" width="680" alt="Paired Wu2019 and JumpGrad vibration reductions and their signed difference across eight held-out operating conditions">
+  <img src="outputs/jumpgrad_visuals/held_out.png" width="680" alt="Fresh-seed Initial and Trained JumpGrad generalization distributions across eight held-out operating conditions with a Wu2019 reference">
 </p>
 
 Wu2019 reduces the sampled resonance peak by about 20.2% relative to passive friction. JumpGrad reaches about 23.9% reduction, and its sampled peak is approximately 4.6% lower than the reproduced Wu2019 baseline. Both peaks lie inside the sampled local-FRF window.
 
-The learned MLP also outputs different switching parameters for different operating conditions. A separately optimized deterministic binary controller remains highly competitive, so these results demonstrate trainability through hard stochastic mechanics rather than universal superiority of stochastic control.
+On 128 fresh Markov realizations shared by Initial and Trained controllers across all eight held-out conditions, mean reduction rises from 3.0% to 21.1% and median reduction rises from 3.1% to 21.1%. Training improves all 128 paired aggregate scores. The learned MLP also outputs different switching parameters for different operating conditions.
 
-## 8. Reproduce and scope
+## 8. Reproduce
 
 Python 3.12 and [uv](https://docs.astral.sh/uv/) are required. The default command runs a compact end-to-end demo through both Tesseract blocks: it checks the three gradient routes and completes one Adam update without changing the frozen showcase results.
 
@@ -104,15 +104,25 @@ The complete registered 100-update experiment is available through the same entr
 uv run python scripts/run_jumpgrad_end_to_end.py --train
 ```
 
-The reported comparison is between control methods evaluated on the same numerical benchmark. It is not a direct comparison with the experimental system used by Wu et al. The project also does not claim that stochastic switching generally outperforms deterministic control.
+Evaluate the frozen final controller on 128 fresh Markov realizations for each held-out condition:
+
+```bash
+uv run python scripts/run_jumpgrad_generalization.py
+```
+
+Rebuild only the fresh-seed held-out figure and the frozen Hero GIF with temporary plotting dependencies:
+
+```bash
+uv run --with matplotlib==3.11.1 --with pillow==12.3.0 \
+  python scripts/render_jumpgrad_visuals.py
+```
 
 ## 9. References
 
 1. Y. G. Wu et al., “Design of semi-active dry friction dampers for steady-state vibration: sensitivity analysis and experimental studies,” *Journal of Sound and Vibration* 459, 114850 (2019). [doi:10.1016/j.jsv.2019.114850](https://doi.org/10.1016/j.jsv.2019.114850)
 2. D. Häfner and A. Lavin, “Tesseract Core: Universal, autodiff-native software components for Simulation Intelligence,” *Journal of Open Source Software* 10(111), 8385 (2025). [doi:10.21105/joss.08385](https://doi.org/10.21105/joss.08385)
 3. T. Xue et al., “JAX-FEM: A differentiable GPU-accelerated 3D finite element solver for automatic inverse design and mechanistic data science,” *Computer Physics Communications* 291, 108802 (2023). [doi:10.1016/j.cpc.2023.108802](https://doi.org/10.1016/j.cpc.2023.108802)
-4. M. C. Fu, “Gradient Estimation,” *Handbooks in Operations Research and Management Science* 13, 575–616 (2006). [doi:10.1016/S0927-0507(06)13019-4](https://doi.org/10.1016/S0927-0507(06)13019-4)
-5. N. L. Kleinman, J. C. Spall, and D. Q. Naiman, “Simulation-Based Optimization with Stochastic Approximation Using Common Random Numbers,” *Management Science* 45(11), 1570–1578 (1999). [doi:10.1287/mnsc.45.11.1570](https://doi.org/10.1287/mnsc.45.11.1570)
-6. P. Glasserman and D. D. Yao, “Some Guidelines and Guarantees for Common Random Numbers,” *Management Science* 38(6), 884–908 (1992). [doi:10.1287/mnsc.38.6.884](https://doi.org/10.1287/mnsc.38.6.884)
+4. H. J. Suh, M. Simchowitz, K. Zhang, and R. Tedrake, “Do Differentiable Simulators Give Better Policy Gradients?” *Proceedings of Machine Learning Research* 162, 20668–20696 (2022). [PMLR](https://proceedings.mlr.press/v162/suh22b.html)
+5. L. Dai, “Rate of Convergence for Derivative Estimation of Discrete-Time Markov Chains via Finite-Difference Approximation with Common Random Numbers,” *SIAM Journal on Applied Mathematics* 57(3), 731–751 (1997). [doi:10.1137/S003613999427173X](https://doi.org/10.1137/S003613999427173X)
 
 The repository is licensed under [Apache-2.0](LICENSE). JAX-FEM is an external GPL-3.0 dependency; its source is not copied into this repository.
