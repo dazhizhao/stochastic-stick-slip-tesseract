@@ -80,12 +80,12 @@ During the backward pass, the mechanics Tesseract estimates the cotangent of `q`
 </p>
 
 <p align="center">
-  <img src="outputs/jumpgrad_visuals/held_out.png" width="680" alt="Fresh-seed Initial and Trained JumpGrad generalization distributions across eight held-out operating conditions with a Wu2019 reference">
+  <img src="outputs/jumpgrad_visuals/held_out.png" width="680" alt="Trained JumpGrad fresh-seed distributions across eight held-out operating conditions compared with deterministic Wu2019 references">
 </p>
 
 Wu2019 reduces the sampled resonance peak by about 20.2% relative to passive friction. JumpGrad reaches about 23.9% reduction, and its sampled peak is approximately 4.6% lower than the reproduced Wu2019 baseline. Both peaks lie inside the sampled local-FRF window.
 
-On 128 fresh Markov realizations shared by Initial and Trained controllers across all eight held-out conditions, mean reduction rises from 3.0% to 21.1% and median reduction rises from 3.1% to 21.1%. Training improves all 128 paired aggregate scores. The learned MLP also outputs different switching parameters for different operating conditions.
+Across 128 fresh random realizations, training improves the aggregate mean reduction from 2.986% to 21.114%. In the held-out comparison, Panel A shows the Trained JumpGrad distribution at each of the eight operating conditions together with its deterministic Wu2019 reference. Panel B aggregates each fresh realization equally across all eight conditions and compares the resulting 128 scores with the Wu2019 aggregate reference. The learned MLP also outputs different switching parameters for different operating conditions.
 
 ## 8. Reproduce
 

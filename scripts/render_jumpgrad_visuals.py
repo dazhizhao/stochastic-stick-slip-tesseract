@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 from pathlib import Path
 import sys
@@ -10,11 +11,6 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-import jax
-
-jax.config.update("jax_enable_x64", True)
-
-import jax.numpy as jnp
 import matplotlib as mpl
 
 mpl.use("Agg")
@@ -24,36 +20,44 @@ from matplotlib.animation import FuncAnimation, PillowWriter
 from matplotlib.collections import PolyCollection
 import numpy as np
 from PIL import Image
-import torch
 
-from stochastic_stick_slip.jumpgrad import (
-    HELD_OUT_CONDITIONS,
-    OMEGA_R,
-    WU_AMPLITUDE,
-    WU_PHASE,
-    build_jumpgrad_controller,
-    condition_descriptors,
-    functional_jumpgrad_controller,
-)
-from stochastic_stick_slip.model import (
-    BEAM_HEIGHT,
-    BEAM_LENGTH,
-    STEPS_PER_PERIOD,
-    build_variable_time_step_mechanics_batch_simulator,
-)
-from stochastic_stick_slip.wu_v2 import (
-    DAMPING,
-    DIAGNOSTIC_NUM_PERIODS,
-    FORCING_AMPLITUDE,
-    REFERENCE_PRELOAD,
-    SYSTEM,
-    single_tone_forcing,
-)
-from stochastic_stick_slip.wu_v2_markov import (
-    NUM_STEPS,
-    generate_hard_preload_history,
-    markov_uniform_bank,
-)
+
+HELD_OUT_ONLY_REQUESTED = "--held-out-only" in sys.argv[1:]
+if not HELD_OUT_ONLY_REQUESTED:
+    import jax
+
+    jax.config.update("jax_enable_x64", True)
+
+    import jax.numpy as jnp
+    import torch
+
+    from stochastic_stick_slip.jumpgrad import (
+        OMEGA_R,
+        WU_AMPLITUDE,
+        WU_PHASE,
+        build_jumpgrad_controller,
+        condition_descriptors,
+        functional_jumpgrad_controller,
+    )
+    from stochastic_stick_slip.model import (
+        BEAM_HEIGHT,
+        BEAM_LENGTH,
+        STEPS_PER_PERIOD,
+        build_variable_time_step_mechanics_batch_simulator,
+    )
+    from stochastic_stick_slip.wu_v2 import (
+        DAMPING,
+        DIAGNOSTIC_NUM_PERIODS,
+        FORCING_AMPLITUDE,
+        REFERENCE_PRELOAD,
+        SYSTEM,
+        single_tone_forcing,
+    )
+    from stochastic_stick_slip.wu_v2_markov import (
+        NUM_STEPS,
+        generate_hard_preload_history,
+        markov_uniform_bank,
+    )
 
 
 GENERALIZATION_PATH = ROOT / "outputs/jumpgrad_generalization/results.json"
@@ -72,19 +76,26 @@ EXPECTED_OUTPUTS = (
 SELECTED_CONDITION_INDEX = 5
 SELECTED_STREAM = 12
 SELECTED_REALIZATION = 0
-STABLE_START = 20 * STEPS_PER_PERIOD
-STABLE_STOP = 24 * STEPS_PER_PERIOD
 FRAME_STRIDE = 4
 NUM_GIF_FRAMES = 100
 GIF_FPS = 20
-TARGET_DEFORMATION = 0.22 * BEAM_LENGTH
+FROZEN_HELD_OUT_CONDITIONS = np.asarray(
+    [
+        (amplitude, frequency)
+        for amplitude in (0.9, 1.1, 1.3, 1.5)
+        for frequency in (0.98, 1.06)
+    ],
+    dtype=np.float64,
+)
+if not HELD_OUT_ONLY_REQUESTED:
+    STABLE_START = 20 * STEPS_PER_PERIOD
+    STABLE_STOP = 24 * STEPS_PER_PERIOD
+    TARGET_DEFORMATION = 0.22 * BEAM_LENGTH
 
 FRAME_COLOR = "#28323A"
 MESH_EDGE_COLOR = "#3B4650"
-INITIAL_COLOR = "#AFC2D4"
 WU_COLOR = "#5C8FBA"
 TRAINED_COLOR = "#1F7894"
-REFERENCE_COLOR = "#C7D0D8"
 PLASMA = mpl.colormaps["plasma"]
 
 METHOD_LABELS = {
@@ -93,9 +104,10 @@ METHOD_LABELS = {
     "jumpgrad": "JumpGrad",
 }
 
-FULL_MECHANICS = build_variable_time_step_mechanics_batch_simulator(
-    SYSTEM, return_full_displacement=True
-)
+if not HELD_OUT_ONLY_REQUESTED:
+    FULL_MECHANICS = build_variable_time_step_mechanics_batch_simulator(
+        SYSTEM, return_full_displacement=True
+    )
 
 
 def _configure_plotting() -> None:
@@ -130,16 +142,17 @@ def _style_axis(axis) -> None:
     )
 
 
-def _panel_label(axis, label: str) -> None:
+def _panel_label(axis, label: str, *, inside: bool = False) -> None:
+    x, y = ((0.025, 0.965) if inside else (-0.12, 1.04))
     axis.text(
-        -0.12,
-        1.04,
+        x,
+        y,
         label,
         transform=axis.transAxes,
         fontsize=15.0,
         fontweight="bold",
         ha="left",
-        va="bottom",
+        va="top" if inside else "bottom",
         color=FRAME_COLOR,
     )
 
@@ -163,7 +176,7 @@ def load_generalization() -> dict:
         result["configuration"]["stream_id"] == 13
         and result["configuration"]["iteration"] == 0
         and initial.shape == trained.shape == (8, 128)
-        and np.allclose(conditions, HELD_OUT_CONDITIONS)
+        and np.allclose(conditions, FROZEN_HELD_OUT_CONDITIONS)
         and len(result["controller"]["frozen_final_theta"]) == 354
         and result["finite"] is True
         and np.all(np.isfinite(initial))
@@ -213,7 +226,7 @@ def simulate_full_field(
 
 
 def replay_hero(generalization: dict) -> dict:
-    condition = HELD_OUT_CONDITIONS[[SELECTED_CONDITION_INDEX]]
+    condition = FROZEN_HELD_OUT_CONDITIONS[[SELECTED_CONDITION_INDEX]]
     theta = np.asarray(
         generalization["controller"]["frozen_final_theta"], dtype=np.float64
     )
@@ -403,34 +416,35 @@ def render_hero(replay: dict) -> None:
     plt.close(figure)
 
 
-def _condition_arrays(result: dict, method: str):
-    rows = result["per_condition"][method]
-    mean = np.asarray([row["mean_reduction_percent"] for row in rows])
-    q05 = np.asarray([row["q05_reduction_percent"] for row in rows])
-    q95 = np.asarray([row["q95_reduction_percent"] for row in rows])
-    return mean, q05, q95
-
-
-def render_held_out(result: dict) -> None:
+def render_held_out(result: dict) -> float:
     _configure_plotting()
-    initial_mean, initial_q05, initial_q95 = _condition_arrays(
-        result, "initial"
+    trained_normalized = np.asarray(
+        result["normalized_responses"]["trained"], dtype=np.float64
     )
-    trained_mean, trained_q05, trained_q95 = _condition_arrays(
-        result, "trained"
-    )
+    trained_reduction = 100.0 * (1.0 - trained_normalized)
+    trained_mean = np.mean(trained_reduction, axis=1)
+    trained_aggregate = np.mean(trained_reduction, axis=0)
     wu = np.asarray(
         result["references"]["wu2019_reduction_percent"], dtype=np.float64
     )
-    initial = np.asarray(
-        result["aggregate_reduction_percent"]["initial"], dtype=np.float64
-    )
-    trained = np.asarray(
+    stored_aggregate = np.asarray(
         result["aggregate_reduction_percent"]["trained"], dtype=np.float64
     )
+    if (
+        trained_reduction.shape != (8, 128)
+        or wu.shape != (8,)
+        or stored_aggregate.shape != (128,)
+        or not np.all(np.isfinite(trained_reduction))
+        or not np.all(np.isfinite(wu))
+        or not np.allclose(
+            trained_aggregate, stored_aggregate, rtol=1e-12, atol=1e-12
+        )
+    ):
+        raise RuntimeError("held-out plotting data contract changed")
+    wu_aggregate = float(np.mean(wu))
     labels = [
         f"{amplitude:.1f}\n{frequency:.2f}"
-        for amplitude, frequency in HELD_OUT_CONDITIONS
+        for amplitude, frequency in FROZEN_HELD_OUT_CONDITIONS
     ]
     x = np.arange(8, dtype=np.float64)
 
@@ -440,72 +454,64 @@ def render_held_out(result: dict) -> None:
         figsize=(11.8, 4.25),
         gridspec_kw={"width_ratios": (1.75, 1.0)},
     )
-    axes[0].errorbar(
-        x - 0.18,
-        initial_mean,
-        yerr=(initial_mean - initial_q05, initial_q95 - initial_mean),
-        fmt="o",
-        color=INITIAL_COLOR,
-        ecolor=INITIAL_COLOR,
-        markeredgecolor="white",
-        markeredgewidth=0.9,
-        markersize=6.5,
-        linewidth=1.4,
-        capsize=2.5,
-        label="Initial",
-        zorder=3,
-    )
-    axes[0].errorbar(
-        x + 0.18,
-        trained_mean,
-        yerr=(trained_mean - trained_q05, trained_q95 - trained_mean),
-        fmt="o",
-        color=TRAINED_COLOR,
-        ecolor=TRAINED_COLOR,
-        markeredgecolor="white",
-        markeredgewidth=0.9,
-        markersize=6.5,
-        linewidth=1.4,
-        capsize=2.5,
-        label="Trained",
-        zorder=4,
-    )
-    axes[0].plot(
-        x,
-        wu,
-        "D",
-        color=WU_COLOR,
-        markeredgecolor="white",
-        markeredgewidth=0.9,
-        markersize=6.0,
-        label="Wu2019",
-        zorder=5,
-    )
-    axes[0].set_xticks(x, labels)
-    axes[0].set_xlabel(r"Held-out condition, $F/F_0$ and $\omega/\omega_r$")
-    axes[0].set_ylabel("Reduction vs passive (%)")
-    axes[0].legend(loc="best", ncols=3, frameon=False)
-    _style_axis(axes[0])
-    _panel_label(axes[0], "a")
-
-    violins = axes[1].violinplot(
-        [initial, trained],
-        positions=[0.0, 1.0],
+    condition_violins = axes[0].violinplot(
+        [trained_reduction[index] for index in range(8)],
+        positions=x,
         widths=0.72,
         showmeans=False,
         showmedians=False,
         showextrema=False,
     )
-    for body, color in zip(
-        violins["bodies"], (INITIAL_COLOR, TRAINED_COLOR), strict=True
-    ):
-        body.set_facecolor(color)
-        body.set_edgecolor(color)
+    for body in condition_violins["bodies"]:
+        body.set_facecolor(TRAINED_COLOR)
+        body.set_edgecolor(TRAINED_COLOR)
+        body.set_alpha(0.28)
+        body.set_linewidth(1.1)
+    axes[0].scatter(
+        x,
+        wu,
+        marker="D",
+        color=WU_COLOR,
+        edgecolor="white",
+        linewidth=0.9,
+        s=48,
+        label="Wu2019",
+        zorder=5,
+    )
+    axes[0].scatter(
+        x,
+        trained_mean,
+        marker="o",
+        color=TRAINED_COLOR,
+        edgecolor="white",
+        linewidth=0.9,
+        s=50,
+        label="Trained JumpGrad",
+        zorder=4,
+    )
+    axes[0].set_xticks(x, labels)
+    axes[0].set_xlabel(r"Held-out condition, $F/F_0$ and $\omega/\omega_r$")
+    axes[0].set_ylabel("Reduction vs passive (%)")
+    axes[0].legend(loc="best", ncols=2, frameon=False)
+    _style_axis(axes[0])
+    _panel_label(axes[0], "a")
+
+    violins = axes[1].violinplot(
+        [trained_aggregate],
+        positions=[0.0],
+        widths=0.82,
+        showmeans=False,
+        showmedians=False,
+        showextrema=False,
+    )
+    for body in violins["bodies"]:
+        body.set_facecolor(TRAINED_COLOR)
+        body.set_edgecolor(TRAINED_COLOR)
         body.set_alpha(0.42)
         body.set_linewidth(1.2)
     boxes = axes[1].boxplot(
-        [initial, trained],
-        positions=[0.0, 1.0],
+        [trained_aggregate],
+        positions=[0.0],
         widths=0.20,
         showfliers=False,
         patch_artist=True,
@@ -514,38 +520,33 @@ def render_held_out(result: dict) -> None:
         capprops={"color": FRAME_COLOR, "linewidth": 1.1},
         boxprops={"edgecolor": FRAME_COLOR, "linewidth": 1.1},
     )
-    for box, color in zip(
-        boxes["boxes"], (INITIAL_COLOR, TRAINED_COLOR), strict=True
-    ):
-        box.set_facecolor(color)
+    for box in boxes["boxes"]:
+        box.set_facecolor(TRAINED_COLOR)
         box.set_alpha(0.72)
-
-    displayed = np.arange(0, 128, 8)
-    offsets = np.linspace(-0.055, 0.055, len(displayed))
-    for offset, index in zip(offsets, displayed, strict=True):
-        axes[1].plot(
-            [offset, 1.0 + offset],
-            [initial[index], trained[index]],
-            color=REFERENCE_COLOR,
-            linewidth=0.75,
-            alpha=0.75,
-            zorder=2,
-        )
-        axes[1].scatter(
-            [offset, 1.0 + offset],
-            [initial[index], trained[index]],
-            c=[INITIAL_COLOR, TRAINED_COLOR],
-            edgecolors="white",
-            linewidths=0.65,
-            s=22,
-            zorder=3,
-        )
-    axes[1].axhline(0.0, color=REFERENCE_COLOR, linewidth=1.0, zorder=0)
-    axes[1].set_xticks([0.0, 1.0], ["Initial", "Trained"])
-    axes[1].set_xlim(-0.62, 1.62)
-    axes[1].set_ylabel("Aggregate reduction vs passive (%)")
+    axes[1].scatter(
+        [0.0],
+        [np.mean(trained_aggregate)],
+        marker="o",
+        color=TRAINED_COLOR,
+        edgecolor="white",
+        linewidth=0.9,
+        s=54,
+        zorder=4,
+    )
+    axes[1].axhline(
+        wu_aggregate,
+        color=WU_COLOR,
+        linestyle="--",
+        linewidth=1.7,
+        label=f"Wu2019 aggregate: {wu_aggregate:.1f}%",
+        zorder=1,
+    )
+    axes[1].set_xticks([0.0], ["Trained JumpGrad\n128 fresh seeds"])
+    axes[1].set_xlim(-0.72, 0.72)
+    axes[1].set_ylabel("8-condition aggregate reduction (%)")
+    axes[1].legend(loc="lower right", frameon=False)
     _style_axis(axes[1])
-    _panel_label(axes[1], "b")
+    _panel_label(axes[1], "b", inside=True)
 
     figure.tight_layout(w_pad=2.2)
     figure.savefig(
@@ -555,31 +556,48 @@ def render_held_out(result: dict) -> None:
         facecolor="white",
     )
     plt.close(figure)
+    return wu_aggregate
 
 
-def validate_outputs() -> None:
+def validate_outputs(*, validate_hero: bool = True) -> None:
     actual = tuple(
         sorted(path.name for path in OUTPUT_DIRECTORY.iterdir() if path.is_file())
     )
     if actual != EXPECTED_OUTPUTS:
         raise AssertionError(f"visual output contract changed: {actual}")
-    with Image.open(HERO_PATH) as image:
-        if image.n_frames != NUM_GIF_FRAMES or image.info.get("loop") != 0:
-            raise AssertionError("hero GIF metadata changed")
+    if validate_hero:
+        with Image.open(HERO_PATH) as image:
+            if image.n_frames != NUM_GIF_FRAMES or image.info.get("loop") != 0:
+                raise AssertionError("hero GIF metadata changed")
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Render frozen JumpGrad README visualizations."
+    )
+    parser.add_argument(
+        "--held-out-only",
+        action="store_true",
+        help="render only the fresh-seed held-out comparison",
+    )
+    arguments = parser.parse_args()
     OUTPUT_DIRECTORY.mkdir(parents=True, exist_ok=True)
     result = load_generalization()
+    if arguments.held_out_only:
+        wu_aggregate = render_held_out(result)
+        validate_outputs(validate_hero=False)
+        print(f"wu2019_aggregate_reduction_percent={wu_aggregate:.12g}")
+        print(f"output={HELD_OUT_PATH.relative_to(ROOT)}")
+        return
     replay = replay_hero(result)
     render_hero(replay)
-    render_held_out(result)
+    wu_aggregate = render_held_out(result)
     validate_outputs()
     print(
         f"hero_frames={NUM_GIF_FRAMES} deformation_scale="
         f"{replay['deformation_scale']:.12g}"
     )
-    print("paired_display_indices=0,8,...,120")
+    print(f"wu2019_aggregate_reduction_percent={wu_aggregate:.12g}")
     print(f"outputs={HERO_PATH.relative_to(ROOT)},{HELD_OUT_PATH.relative_to(ROOT)}")
 
 
