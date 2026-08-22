@@ -7,7 +7,7 @@ jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 import numpy as np
 
-from stochastic_stick_slip.engineering_showcase import SYSTEM
+from stochastic_stick_slip.showcase import SYSTEM
 from stochastic_stick_slip.model import (
     NUM_PERIODS,
     STEPS_PER_PERIOD,

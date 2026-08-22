@@ -1,3 +1,0 @@
-name: stochastic_objective
-version: 0.1.0
-description: Fixed-seed mean objective with an analytic derivative.

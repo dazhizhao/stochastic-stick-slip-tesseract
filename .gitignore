@@ -1,209 +1,19 @@
-# Python
+# Python and local environments
 __pycache__/
 *.py[cod]
-*.pyo
-*.pyd
 *.so
-*.egg
 *.egg-info/
-dist/
-build/
-.eggs/
-
-# Virtual environments
 .venv/
 venv/
-env/
-ENV/
-
-# Python tooling / caches
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
 .coverage
-coverage.xml
-htmlcov/
-.tox/
-.nox/
 
-# Jupyter
-.ipynb_checkpoints/
-
-# JAX / ML caches
-.jax_cache/
-*.xla_cache/
-wandb/
-runs/
-tensorboard/
-lightning_logs/
-
-# Local outputs / results
+# Generated data and runtime outputs
 outputs/
-results/
-artifacts/
-checkpoints/
-logs/
-tmp/
-temp/
-
-# Public Stage H1.5 result figures
 !outputs/
 outputs/*
-!outputs/stage_h15/
-outputs/stage_h15/*
-!outputs/stage_h15/mesh_and_two_contact_response.png
-!outputs/stage_h15/objective_history.png
-
-# Public Stage H2 result figures
-!outputs/stage_h2/
-outputs/stage_h2/*
-!outputs/stage_h2/fourier_controlled_response.png
-!outputs/stage_h2/training_objective.png
-
-# Public Stage H3 result figures
-!outputs/stage_h3/
-outputs/stage_h3/*
-!outputs/stage_h3/per_seed_generalization.png
-!outputs/stage_h3/train_test_objectives.png
-
-# Public Stage H4 result figures
-!outputs/stage_h4/
-outputs/stage_h4/*
-!outputs/stage_h4/per_seed_generalization.png
-!outputs/stage_h4/training_objective_history.png
-
-# Public final-showcase media (raw trajectories and checkpoints stay local)
-!outputs/showcase/
-outputs/showcase/*
-!outputs/showcase/large_fem_setup.png
-!outputs/showcase/optimization_history_500.png
-!outputs/showcase/held_out_improvement.png
-!outputs/showcase/held_out_distribution.png
-!outputs/showcase/representative_response.png
-!outputs/showcase/fixed_vs_final_deformation.gif
-!outputs/showcase/optimization_all_iterations.gif
-
-# Engineering showcase operating-condition probe
-!outputs/engineering_probe/
-outputs/engineering_probe/*
-!outputs/engineering_probe/probe_results.json
-
-# Resonant low-damping engineering-showcase media
-!outputs/engineering_showcase/
-outputs/engineering_showcase/*
-!outputs/engineering_showcase/held_out_distribution.png
-!outputs/engineering_showcase/representative_response.png
-!outputs/engineering_showcase/cumulative_vibration.png
-!outputs/engineering_showcase/optimization_all_iterations.gif
-!outputs/engineering_showcase/initial_vs_optimized_deformation.gif
-
-# Direct-AD mixed-gradient ablation
-!outputs/direct_ad_ablation/
-outputs/direct_ad_ablation/*
-!outputs/direct_ad_ablation/direct_ad_vs_crn_fd.png
-
-# Stochastic friction-state gradient probe
-!outputs/stochastic_event_probe/
-outputs/stochastic_event_probe/*
-!outputs/stochastic_event_probe/ad_vs_fd.png
-
-# Fixed Monte-Carlo Gaussian-smoothing probe
-!outputs/gaussian_smoothing_probe/
-outputs/gaussian_smoothing_probe/*
-!outputs/gaussian_smoothing_probe/gradient_and_optimization.png
-
-# Score-function stochastic-event probe
-!outputs/score_function_probe/
-outputs/score_function_probe/*
-!outputs/score_function_probe/score_function_gradient.png
-
-# Markov-jump Gate A result
-!outputs/markov_jump_gate_a/
-outputs/markov_jump_gate_a/*
-!outputs/markov_jump_gate_a/results.json
-
-# Markov-jump Gate B result
-!outputs/markov_jump_gate_b/
-outputs/markov_jump_gate_b/*
-!outputs/markov_jump_gate_b/results.json
-
-# Markov-jump Gate C result
-!outputs/markov_jump_gate_c/
-outputs/markov_jump_gate_c/*
-!outputs/markov_jump_gate_c/results.json
-
-# Markov-jump long-training showcase media
-!outputs/markov_jump_long_training/
-outputs/markov_jump_long_training/*
-!outputs/markov_jump_long_training/optimization_all_iterations.gif
-!outputs/markov_jump_long_training/initial_vs_optimized_deformation.gif
-!outputs/markov_jump_long_training/optimization_history.png
-!outputs/markov_jump_long_training/held_out_distribution.png
-!outputs/markov_jump_long_training/representative_markov_response.png
-
-# Compact Markov-jump ablation study
-!outputs/markov_jump_ablation/
-outputs/markov_jump_ablation/*
-!outputs/markov_jump_ablation/results.json
-!outputs/markov_jump_ablation/ablation_summary.png
-
-# Wu-style V2 Gate 0 engineering-authority result
-!outputs/wu_v2_gate0/
-outputs/wu_v2_gate0/*
-!outputs/wu_v2_gate0/results.json
-!outputs/wu_v2_gate0/gate0_summary.png
-
-# Wu-style V2 Gate 0 repair result
-!outputs/wu_v2_gate0_repair/
-outputs/wu_v2_gate0_repair/*
-!outputs/wu_v2_gate0_repair/results.json
-!outputs/wu_v2_gate0_repair/gate0_repair_summary.png
-
-# Wu-style V2 passive FRF diagnostic
-!outputs/wu_v2_passive_diagnostic/
-outputs/wu_v2_passive_diagnostic/*
-!outputs/wu_v2_passive_diagnostic/results.json
-!outputs/wu_v2_passive_diagnostic/passive_frf_diagnostic.png
-
-# Wu-style V2 final harmonic Gate 0
-!outputs/wu_v2_gate0_final/
-outputs/wu_v2_gate0_final/*
-!outputs/wu_v2_gate0_final/results.json
-!outputs/wu_v2_gate0_final/gate0_final_summary.png
-
-# Wu2019 design-method reproduction on the frozen JAX-FEM benchmark
-!outputs/wu2019_reproduction/
-outputs/wu2019_reproduction/*
-!outputs/wu2019_reproduction/wu_method_summary.png
-!outputs/wu2019_reproduction/excitation_range.png
-!outputs/wu2019_reproduction/scorecard.json
-!outputs/wu2019_reproduction/scorecard.md
-
-# Wu-V2 stochastic Markov versus Wu-style deterministic head-to-head
-!outputs/wu_v2_head_to_head/
-outputs/wu_v2_head_to_head/*
-!outputs/wu_v2_head_to_head/results.json
-!outputs/wu_v2_head_to_head/head_to_head.md
-!outputs/wu_v2_head_to_head/head_to_head_frf.png
-!outputs/wu_v2_head_to_head/learned_switching_policy.png
-
-# Phase-optimized deterministic Wu-V2 binary comparator
-!outputs/wu_v2_binary_comparator/
-outputs/wu_v2_binary_comparator/*
-!outputs/wu_v2_binary_comparator/results.json
-!outputs/wu_v2_binary_comparator/binary_comparator.md
-!outputs/wu_v2_binary_comparator/binary_comparator.png
-
-# Condition-aware mixed-gradient JumpGrad system
-!outputs/jumpgrad_end_to_end/
-outputs/jumpgrad_end_to_end/*
-!outputs/jumpgrad_end_to_end/results.json
-!outputs/jumpgrad_end_to_end/summary.md
-!outputs/jumpgrad_end_to_end/optimization.png
-!outputs/jumpgrad_end_to_end/held_out.png
-!outputs/jumpgrad_end_to_end/architecture.png
-
-# Final JumpGrad visualization package
 !outputs/jumpgrad_visuals/
 outputs/jumpgrad_visuals/*
 !outputs/jumpgrad_visuals/passive_wu_jumpgrad.gif
@@ -212,69 +22,34 @@ outputs/jumpgrad_visuals/*
 !outputs/jumpgrad_visuals/main_results.png
 !outputs/jumpgrad_visuals/gradient_story.png
 !outputs/jumpgrad_visuals/held_out.png
-
-# Model / checkpoint files
+results/
+artifacts/
+checkpoints/
+logs/
+tmp/
+temp/
+data/generated/
+data/cache/
 *.ckpt
 *.pth
 *.pt
 *.onnx
+*.log
 
-# Data generated locally
-data/generated/
-data/cache/
-
-# Environment / secrets
+# Local tooling, secrets, and editors
 .env
 .env.*
 !.env.example
 *.pem
 *.key
 secrets/
-
-# IDEs
 .vscode/
 .idea/
 *.swp
 *.swo
-
-# macOS
 .DS_Store
-.AppleDouble
-.LSOverride
-
-# Windows
-Thumbs.db
-Desktop.ini
-
-# Linux
-*~
-
-# Logs
-*.log
-
-# Profiling
-*.prof
-*.lprof
-profile_output/
-
-# C/C++ build artifacts
-*.o
-*.obj
-*.a
-*.lib
-*.dll
-*.dylib
-cmake-build-*/
-CMakeFiles/
-CMakeCache.txt
-Makefile
-compile_commands.json
-
-# Tesseract / Docker local files if generated
 .tesseract/
 docker-compose.override.yml
-
-# Local agent instructions
 AGENTS.md
 
 # Recoverable local cleanup

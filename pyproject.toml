@@ -11,23 +11,10 @@ dependencies = [
     "meshio==5.3.5",
     "gmsh==4.15.2",
     "fenics-basix==0.10.0",
-    "petsc4py==3.25.4",
-    "matplotlib>=3.11.1",
     "numpy==2.5.1",
     "pyfiglet>=1.0.4",
     "scipy>=1.18.0",
     "tesseract-core[runtime] @ git+https://github.com/dazhizhao/tesseract-core.git@43fe09bd8ef1a96569e8499d022482d1ae4ce1de",
-    "tesseract-jax>=0.4.1",
     "tesseract-torch>=0.1.0",
     "torch>=2.13.0",
-    "salib==1.5.2",
-]
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-pythonpath = ["."]
-
-[dependency-groups]
-dev = [
-    "pytest>=9.1.1",
 ]

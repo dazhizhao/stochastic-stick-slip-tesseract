@@ -87,27 +87,22 @@ Wu2019 reduces the sampled resonance peak by about 20.2% relative to passive fri
 
 The learned MLP also outputs different switching parameters for different operating conditions. A separately optimized deterministic binary controller remains highly competitive, so these results demonstrate trainability through hard stochastic mechanics rather than universal superiority of stochastic control.
 
-Detailed numerical artifacts are available in the [end-to-end training summary](outputs/jumpgrad_end_to_end/summary.md) and the [Wu2019 reproduction scorecard](outputs/wu2019_reproduction/scorecard.md).
-
 ## 8. Reproduce and scope
 
-Python 3.12 and [uv](https://docs.astral.sh/uv/) are required. The quick path runs the registered mixed-gradient smoke audit and rebuilds the frozen showcase visuals; it does not retrain the controller.
+Python 3.12 and [uv](https://docs.astral.sh/uv/) are required. The default command runs a compact end-to-end demo through both Tesseract blocks: it checks the three gradient routes and completes one Adam update without changing the frozen showcase results.
 
 ```bash
 git clone https://github.com/dazhizhao/stochastic-stick-slip-tesseract.git
 cd stochastic-stick-slip-tesseract
-uv run python scripts/reproduce.py
+uv sync
+uv run python scripts/run_jumpgrad_end_to_end.py
 ```
 
-The underlying checks and renderer can also be run separately:
+The complete registered 100-update experiment is available through the same entry point:
 
 ```bash
-uv run pytest -q
-uv run python scripts/run_jumpgrad_end_to_end.py --smoke
-uv run python scripts/render_jumpgrad_visuals.py
+uv run python scripts/run_jumpgrad_end_to_end.py --train
 ```
-
-To reproduce the complete 100-update scientific training run rather than the quick audit, use `uv run python scripts/run_jumpgrad_end_to_end.py`.
 
 The reported comparison is between control methods evaluated on the same numerical benchmark. It is not a direct comparison with the experimental system used by Wu et al. The project also does not claim that stochastic switching generally outperforms deterministic control.
 

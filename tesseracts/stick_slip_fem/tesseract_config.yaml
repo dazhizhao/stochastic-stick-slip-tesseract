@@ -1,3 +1,0 @@
-name: stick_slip_fem
-version: 0.1.0
-description: Coupled hard Jenkins dynamics on a two-contact JAX-FEM cantilever.
