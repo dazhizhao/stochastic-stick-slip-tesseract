@@ -1,14 +1,12 @@
-<div align="center">
+<p align="center">
+  <img src="assets/jumpgrad_logo.png" width="140" alt="JumpGrad logo">
+</p>
 
-# JumpGrad
+<h1 align="center">JumpGrad: End-to-End Gradient Optimization through Discrete Stochastic Mechanics</h1>
 
-**End-to-End Gradient Optimization through Discrete Stochastic Mechanics**
-
-Differentiable optimization through hard stochastic switching with Tesseract.
-
-[Problem](#1-problem) · [Method](#2-method) · [Results](#3-results) · [Why it works](#4-why-it-works) · [Reproduce](#5-reproduce)
-
-</div>
+<p align="center">
+  <a href="#1-problem">Problem</a> · <a href="#2-method">Method</a> · <a href="#3-results">Results</a> · <a href="#4-why-tesseract">Why Tesseract</a> · <a href="#5-reproduce">Reproduce</a>
+</p>
 
 <p align="center">
   <img src="outputs/jumpgrad_visuals/passive_wu_jumpgrad.gif" width="760" alt="Passive, Wu2019, and JumpGrad beam vibration under the same operating condition">
@@ -48,17 +46,13 @@ The [`jumpgrad_controller`](tesseracts/jumpgrad_controller/tesseract_api.py) Tes
   <img src="outputs/jumpgrad_visuals/tesseract_pipeline.png" width="760" alt="Two peer Tesseract blocks composing a PyTorch controller with hard stochastic JAX-FEM mechanics">
 </p>
 
-During the backward pass, the mechanics block returns a CRN finite-difference cotangent of `q`; the controller block propagates it to all 354 MLP parameters with PyTorch autograd. A single `loss.backward()` call therefore drives the registered 100-update Adam training run.
-
-<p align="center">
-  <img src="outputs/jumpgrad_visuals/optimization.gif" width="700" alt="Frozen JumpGrad optimization replay showing the fixed-monitor objective and tip response over 100 updates">
-</p>
+Together, these two components form one end-to-end trainable system. The controller has 354 parameters, and the registered experiment optimizes them with 100 Adam updates while preserving the hard stochastic mechanics.
 
 ## 3. Results
 
 JumpGrad produces a trainable end-to-end gradient through the discrete stochastic simulator and improves vibration suppression on both the benchmark and fresh random realizations.
 
-On the same numerical JAX-FEM/Jenkins benchmark, the reproduced Wu2019 control method reduces the sampled resonance peak by about 20.2% relative to passive friction. JumpGrad reaches **23.9%** reduction, and its sampled peak is approximately 4.6% lower than the reproduced Wu2019 baseline. Both peaks lie inside the sampled local-FRF window.
+On the same numerical JAX-FEM/Jenkins benchmark, the reproduced Wu2019 control method reduces the sampled resonance peak by about 20.2% relative to passive friction. JumpGrad reaches **23.9%** reduction. Both peaks lie inside the sampled local-FRF window.
 
 <p align="center">
   <img src="outputs/jumpgrad_visuals/main_results.png" width="680" alt="Local resonance response and peak reduction for Passive, Wu2019, and JumpGrad">
@@ -70,15 +64,24 @@ The frozen controller was evaluated on 128 unseen random realizations, each aggr
   <img src="outputs/jumpgrad_visuals/held_out.png" width="680" alt="Initial and Trained JumpGrad aggregate reductions with paired fresh-seed improvements">
 </p>
 
-## 4. Why it works
+## 4. Why Tesseract
 
-### Hard switching breaks ordinary AD
+JumpGrad spans two computational worlds: a PyTorch neural controller and JAX-based stochastic mechanics. They also require different backward rules—the controller uses PyTorch autograd, while the mechanics uses common-random-number finite differences through hard switching. A single ordinary AD graph cannot supply the missing pathwise derivative across the sampled Markov events.
 
-For a fixed random tape, a small change in `q` can leave every sampled `LOW`/`HIGH` decision unchanged. The preload history and mechanical trajectory are then locally constant with respect to `q`; in the registered gradient audit, direct automatic differentiation through this real hard path returns a zero physics gradient.
+Tesseract is not another simulator in this workflow. It lets each component retain its own forward implementation and derivative rule, then composes those components into a modular end-to-end backward pass.
 
-### CRN finite differences
+| Component | Forward | Backward |
+|---|---|---|
+| [`jumpgrad_controller`](tesseracts/jumpgrad_controller/tesseract_api.py) | operating condition → `q` | PyTorch autograd |
+| [`wu_v2_markov_fem`](tesseracts/wu_v2_markov_fem/tesseract_api.py) | `q` + random tapes → vibration objective | CRN centered finite differences |
 
-The physics interface is only two-dimensional, so a centered finite difference remains affordable while preserving the original hard forward model:
+Tesseract composes these two derivative rules into the same end-to-end backward pass.
+
+### Hard switching needs a custom gradient
+
+For a fixed random tape, a small change in `q` can leave every sampled `LOW`/`HIGH` decision unchanged. The preload history and mechanical trajectory are then locally constant with respect to `q`; in the registered gradient audit, direct automatic differentiation through this real hard path returns a zero mechanics gradient.
+
+Because the physics interface is only two-dimensional, a centered finite difference remains affordable while preserving the original hard forward model:
 
 $$
 g_i =
@@ -89,14 +92,7 @@ L(q + \varepsilon e_i;\xi) - L(q - \varepsilon e_i;\xi)
 }.
 $$
 
-Each `+eps`/`-eps` pair receives the same explicit `markov_tapes`. This common-random-number coupling suppresses unrelated Monte Carlo variation and isolates the effect of the policy perturbation. JAX-FEM supplies the genuine differentiable structural solver, while the physics-side finite-difference VJP crosses the surrounding hard-event boundary without softening the Markov decisions.
-
-### Tesseract composition
-
-- Controller side: PyTorch autograd maps the cotangent of `q` to all neural-network parameters.
-- Mechanics side: CRN centered finite differences recover sensitivity through hard stochastic switching.
-
-Tesseract composes these two derivative rules into the same `loss.backward()` chain while keeping operating conditions and random tapes as explicit mechanics inputs.
+Each `+eps`/`-eps` pair receives the same explicit `markov_tapes`. This common-random-number coupling suppresses unrelated stochastic variation, while the forward pass retains the real `LOW`/`HIGH` switching events. The resulting mechanics cotangent is then propagated through the controller with PyTorch autograd.
 
 ### Bonus — we forked and modified Tesseract Core
 
