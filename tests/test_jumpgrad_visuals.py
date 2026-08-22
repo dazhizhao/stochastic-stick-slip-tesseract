@@ -102,6 +102,7 @@ def test_gif_contract_and_visual_asset_order(tmp_path: Path):
         "wu_vs_jumpgrad_control.gif",
         "main_results.png",
         "gradient_story.png",
+        "tesseract_pipeline.png",
     )
     assert tuple(path.name for path in visuals.EXPECTED_OUTPUTS) == expected
     actual = tuple(
@@ -113,3 +114,43 @@ def test_gif_contract_and_visual_asset_order(tmp_path: Path):
     assert visuals.validate_gif(visuals.MAIN_GIF_PATH)[0] == 100
     assert visuals.validate_gif(visuals.CONTROL_GIF_PATH)[0] == 100
     assert set(visuals.METHOD_LABELS.values()) == {"Passive", "Wu2019", "JumpGrad"}
+
+
+def test_pipeline_only_cli_skips_scientific_replay(tmp_path: Path, monkeypatch):
+    output = tmp_path / "tesseract_pipeline.png"
+    monkeypatch.setattr(visuals, "OUTPUT_DIRECTORY", tmp_path)
+    monkeypatch.setattr(visuals, "PIPELINE_PATH", output)
+
+    def fail_if_called():
+        raise AssertionError("pipeline-only mode must not load scientific artifacts")
+
+    monkeypatch.setattr(visuals, "load_frozen_sources", fail_if_called)
+    visuals.main(["--pipeline-only"])
+
+    with Image.open(output) as image:
+        assert image.format == "PNG"
+        assert image.width >= 2000
+        assert image.height >= 800
+
+
+def test_readme_is_tesseract_first_without_numbered_captions():
+    readme = (visuals.ROOT / "README.md").read_text()
+    required = (
+        "Track 03 — Hybrid ML + mechanistic models",
+        "jumpgrad_controller",
+        "wu_v2_markov_fem",
+        "Framework",
+        "Derivative strategy",
+        "Physics",
+        "outputs/jumpgrad_visuals/tesseract_pipeline.png",
+        "10.21105/joss.08385",
+        "10.1016/j.cpc.2023.108802",
+        "10.1016/S0927-0507(06)13019-4",
+        "10.1287/mnsc.45.11.1570",
+        "10.1287/mnsc.38.6.884",
+    )
+    assert all(text in readme for text in required)
+    assert "Figure 1" not in readme
+    assert "Figure 2" not in readme
+    assert "Figure 3" not in readme
+    assert "Figure 4" not in readme

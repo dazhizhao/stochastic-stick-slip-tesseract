@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 from pathlib import Path
 import sys
@@ -22,6 +23,7 @@ mpl.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation, PillowWriter
 from matplotlib.collections import PolyCollection
+from matplotlib.patches import FancyBboxPatch, Rectangle
 import numpy as np
 from PIL import Image
 import torch
@@ -69,12 +71,14 @@ MAIN_GIF_PATH = OUTPUT_DIRECTORY / "passive_wu_jumpgrad.gif"
 CONTROL_GIF_PATH = OUTPUT_DIRECTORY / "wu_vs_jumpgrad_control.gif"
 MAIN_RESULTS_PATH = OUTPUT_DIRECTORY / "main_results.png"
 GRADIENT_PATH = OUTPUT_DIRECTORY / "gradient_story.png"
+PIPELINE_PATH = OUTPUT_DIRECTORY / "tesseract_pipeline.png"
 
 EXPECTED_OUTPUTS = (
     MAIN_GIF_PATH,
     CONTROL_GIF_PATH,
     MAIN_RESULTS_PATH,
     GRADIENT_PATH,
+    PIPELINE_PATH,
 )
 
 SELECTED_HELD_OUT_INDEX = 5
@@ -679,6 +683,158 @@ def render_gradient_story(j1: dict) -> None:
     plt.close(figure)
 
 
+def render_tesseract_pipeline(path: Path = PIPELINE_PATH) -> None:
+    """Render the two peer Tesseract blocks and their forward/backward flow."""
+    _configure_plotting()
+    figure, axis = plt.subplots(figsize=(10.0, 3.6), dpi=100)
+    axis.set_xlim(0.0, 1.0)
+    axis.set_ylim(0.0, 1.0)
+    axis.axis("off")
+
+    box_y = 0.22
+    box_width = 0.31
+    box_height = 0.62
+    boxes = (
+        {
+            "x": 0.14,
+            "accent": JUMPGRAD_COLOR,
+            "header": "TESSERACT BLOCK 01",
+            "name": "JumpGrad Controller",
+            "lines": ("PyTorch MLP", "VJP: PyTorch autograd"),
+        },
+        {
+            "x": 0.55,
+            "accent": WU_COLOR,
+            "header": "TESSERACT BLOCK 02",
+            "name": "Stochastic Mechanics",
+            "lines": (
+                "Hard Markov LOW / HIGH",
+                "JAX-FEM + Jenkins friction",
+                "VJP: CRN centered finite diff.",
+            ),
+        },
+    )
+
+    for spec in boxes:
+        x = spec["x"]
+        patch = FancyBboxPatch(
+            (x, box_y),
+            box_width,
+            box_height,
+            boxstyle="round,pad=0.012,rounding_size=0.015",
+            facecolor="#F7F8FA",
+            edgecolor=FRAME_COLOR,
+            linewidth=1.25,
+        )
+        axis.add_patch(patch)
+        axis.add_patch(
+            Rectangle(
+                (x, box_y + box_height - 0.075),
+                box_width,
+                0.075,
+                facecolor=spec["accent"],
+                edgecolor="none",
+            )
+        )
+        axis.text(
+            x + box_width / 2.0,
+            box_y + box_height - 0.0375,
+            spec["header"],
+            color="white",
+            fontsize=9.2,
+            fontweight="bold",
+            ha="center",
+            va="center",
+        )
+        axis.text(
+            x + box_width / 2.0,
+            box_y + box_height - 0.16,
+            spec["name"],
+            color=FRAME_COLOR,
+            fontsize=11.0,
+            fontweight="bold",
+            ha="center",
+            va="center",
+        )
+        line_y = box_y + box_height - 0.27
+        for line in spec["lines"]:
+            axis.text(
+                x + box_width / 2.0,
+                line_y,
+                line,
+                color=FRAME_COLOR,
+                fontsize=8.7,
+                ha="center",
+                va="center",
+            )
+            line_y -= 0.095
+
+    arrow = {
+        "arrowstyle": "-|>",
+        "color": FRAME_COLOR,
+        "linewidth": 1.35,
+        "mutation_scale": 12,
+    }
+    axis.text(
+        0.055,
+        0.58,
+        "Operating\ncondition",
+        color=FRAME_COLOR,
+        fontsize=9.0,
+        fontweight="bold",
+        ha="center",
+        va="center",
+    )
+    axis.annotate("", xy=(0.135, 0.58), xytext=(0.095, 0.58), arrowprops=arrow)
+
+    axis.annotate("", xy=(0.545, 0.62), xytext=(0.455, 0.62), arrowprops=arrow)
+    axis.text(
+        0.50,
+        0.66,
+        r"$q=[a_2,b_2]$",
+        color=FRAME_COLOR,
+        fontsize=8.8,
+        ha="center",
+        va="bottom",
+    )
+    axis.annotate("", xy=(0.455, 0.42), xytext=(0.545, 0.42), arrowprops=arrow)
+    axis.text(
+        0.50,
+        0.375,
+        "q cotangent",
+        color=FRAME_COLOR,
+        fontsize=8.0,
+        ha="center",
+        va="top",
+    )
+
+    axis.annotate("", xy=(0.915, 0.62), xytext=(0.865, 0.62), arrowprops=arrow)
+    axis.text(
+        0.953,
+        0.62,
+        "Vibration\nobjective",
+        color=FRAME_COLOR,
+        fontsize=9.0,
+        fontweight="bold",
+        ha="center",
+        va="center",
+    )
+    axis.annotate("", xy=(0.865, 0.42), xytext=(0.915, 0.42), arrowprops=arrow)
+    axis.text(
+        0.89,
+        0.375,
+        "loss cotangent",
+        color=FRAME_COLOR,
+        fontsize=8.0,
+        ha="center",
+        va="top",
+    )
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    figure.savefig(path, dpi=300, bbox_inches="tight", facecolor="white")
+    plt.close(figure)
+
+
 def validate_gif(path: Path, expected_frames: int = NUM_GIF_FRAMES) -> tuple[int, tuple[int, int]]:
     """Validate GitHub-compatible animation metadata."""
     with Image.open(path) as image:
@@ -707,8 +863,23 @@ def _validate_outputs(replay: dict) -> None:
         raise FloatingPointError("shared deformation scale is non-finite")
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(
+        description="Render frozen JumpGrad README visualizations."
+    )
+    parser.add_argument(
+        "--pipeline-only",
+        action="store_true",
+        help="Render only the two-Tesseract pipeline without scientific replay.",
+    )
+    args = parser.parse_args(argv)
+
     OUTPUT_DIRECTORY.mkdir(parents=True, exist_ok=True)
+    if args.pipeline_only:
+        render_tesseract_pipeline(PIPELINE_PATH)
+        print(f"output={PIPELINE_PATH}", flush=True)
+        return
+
     sources = load_frozen_sources()
     representative = select_representative_condition(sources["j1"])
     print(
@@ -725,6 +896,7 @@ def main() -> None:
     render_control_gif(replay)
     main_results = render_main_results(sources, jumpgrad_frf)
     render_gradient_story(sources["j1"])
+    render_tesseract_pipeline(PIPELINE_PATH)
     _validate_outputs(replay)
     print(
         f"jumpgrad_peak={main_results['peaks']['jumpgrad']['amplitude']:.12g} "

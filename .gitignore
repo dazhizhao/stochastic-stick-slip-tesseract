@@ -210,6 +210,7 @@ outputs/jumpgrad_visuals/*
 !outputs/jumpgrad_visuals/wu_vs_jumpgrad_control.gif
 !outputs/jumpgrad_visuals/main_results.png
 !outputs/jumpgrad_visuals/gradient_story.png
+!outputs/jumpgrad_visuals/tesseract_pipeline.png
 
 # Model / checkpoint files
 *.ckpt
