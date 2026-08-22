@@ -1,7 +1,13 @@
-<h1 align="center">
-  <img src="assets/jumpgrad_logo.png" width="68" alt="JumpGrad logo" align="middle">&nbsp;&nbsp;JumpGrad: End-to-End Gradient Optimization&emsp;&emsp;&nbsp;&nbsp;<br>
-  through Discrete Stochastic Mechanics
-</h1>
+<table align="center">
+  <tr>
+    <td align="center" valign="middle" width="104">
+      <img src="assets/jumpgrad_logo.png" width="68" alt="JumpGrad logo">
+    </td>
+    <td align="center" valign="middle" width="820" nowrap>
+      <h1 align="center">JumpGrad: End-to-End Gradient Optimization<br>through Discrete Stochastic Mechanics</h1>
+    </td>
+  </tr>
+</table>
 
 <p align="center">
   <a href="https://pasteurlabs.ai/tesseract-hackathon-2026/">Tesseract Hackathon 2026</a> · <strong>Track 03 — Hybrid ML + Mechanistic Models</strong><br>
