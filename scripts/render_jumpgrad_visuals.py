@@ -142,21 +142,6 @@ def _style_axis(axis) -> None:
     )
 
 
-def _panel_label(axis, label: str, *, inside: bool = False) -> None:
-    x, y = ((0.025, 0.965) if inside else (-0.12, 1.04))
-    axis.text(
-        x,
-        y,
-        label,
-        transform=axis.transAxes,
-        fontsize=15.0,
-        fontweight="bold",
-        ha="left",
-        va="top" if inside else "bottom",
-        color=FRAME_COLOR,
-    )
-
-
 def load_generalization() -> dict:
     result = json.loads(GENERALIZATION_PATH.read_text())
     initial = np.asarray(
@@ -416,13 +401,12 @@ def render_hero(replay: dict) -> None:
     plt.close(figure)
 
 
-def render_held_out(result: dict) -> float:
+def render_held_out(result: dict) -> tuple[float, int]:
     _configure_plotting()
     trained_normalized = np.asarray(
         result["normalized_responses"]["trained"], dtype=np.float64
     )
     trained_reduction = 100.0 * (1.0 - trained_normalized)
-    trained_mean = np.mean(trained_reduction, axis=1)
     trained_aggregate = np.mean(trained_reduction, axis=0)
     wu = np.asarray(
         result["references"]["wu2019_reduction_percent"], dtype=np.float64
@@ -442,79 +426,31 @@ def render_held_out(result: dict) -> float:
     ):
         raise RuntimeError("held-out plotting data contract changed")
     wu_aggregate = float(np.mean(wu))
-    labels = [
-        f"{amplitude:.1f}\n{frequency:.2f}"
-        for amplitude, frequency in FROZEN_HELD_OUT_CONDITIONS
-    ]
-    x = np.arange(8, dtype=np.float64)
+    above_wu_count = int(np.count_nonzero(trained_aggregate > wu_aggregate))
+    aggregate_mean = float(np.mean(trained_aggregate))
 
-    figure, axes = plt.subplots(
-        1,
-        2,
-        figsize=(11.8, 4.25),
-        gridspec_kw={"width_ratios": (1.75, 1.0)},
-    )
-    condition_violins = axes[0].violinplot(
-        [trained_reduction[index] for index in range(8)],
-        positions=x,
-        widths=0.72,
+    figure, axis = plt.subplots(figsize=(8.6, 2.65))
+    violin = axis.violinplot(
+        [trained_aggregate],
+        positions=[0.0],
+        widths=0.62,
         showmeans=False,
         showmedians=False,
         showextrema=False,
+        orientation="horizontal",
     )
-    for body in condition_violins["bodies"]:
+    for body in violin["bodies"]:
         body.set_facecolor(TRAINED_COLOR)
         body.set_edgecolor(TRAINED_COLOR)
-        body.set_alpha(0.28)
-        body.set_linewidth(1.1)
-    axes[0].scatter(
-        x,
-        wu,
-        marker="D",
-        color=WU_COLOR,
-        edgecolor="white",
-        linewidth=0.9,
-        s=48,
-        label="Wu2019",
-        zorder=5,
-    )
-    axes[0].scatter(
-        x,
-        trained_mean,
-        marker="o",
-        color=TRAINED_COLOR,
-        edgecolor="white",
-        linewidth=0.9,
-        s=50,
-        label="Trained JumpGrad",
-        zorder=4,
-    )
-    axes[0].set_xticks(x, labels)
-    axes[0].set_xlabel(r"Held-out condition, $F/F_0$ and $\omega/\omega_r$")
-    axes[0].set_ylabel("Reduction vs passive (%)")
-    axes[0].legend(loc="best", ncols=2, frameon=False)
-    _style_axis(axes[0])
-    _panel_label(axes[0], "a")
-
-    violins = axes[1].violinplot(
+        body.set_alpha(0.38)
+        body.set_linewidth(1.35)
+    boxes = axis.boxplot(
         [trained_aggregate],
         positions=[0.0],
-        widths=0.82,
-        showmeans=False,
-        showmedians=False,
-        showextrema=False,
-    )
-    for body in violins["bodies"]:
-        body.set_facecolor(TRAINED_COLOR)
-        body.set_edgecolor(TRAINED_COLOR)
-        body.set_alpha(0.42)
-        body.set_linewidth(1.2)
-    boxes = axes[1].boxplot(
-        [trained_aggregate],
-        positions=[0.0],
-        widths=0.20,
+        widths=0.17,
         showfliers=False,
         patch_artist=True,
+        orientation="horizontal",
         medianprops={"color": FRAME_COLOR, "linewidth": 1.8},
         whiskerprops={"color": FRAME_COLOR, "linewidth": 1.1},
         capprops={"color": FRAME_COLOR, "linewidth": 1.1},
@@ -523,32 +459,63 @@ def render_held_out(result: dict) -> float:
     for box in boxes["boxes"]:
         box.set_facecolor(TRAINED_COLOR)
         box.set_alpha(0.72)
-    axes[1].scatter(
+    axis.scatter(
+        [aggregate_mean],
         [0.0],
-        [np.mean(trained_aggregate)],
         marker="o",
         color=TRAINED_COLOR,
         edgecolor="white",
-        linewidth=0.9,
-        s=54,
+        linewidth=1.1,
+        s=70,
         zorder=4,
     )
-    axes[1].axhline(
+    axis.axvline(
         wu_aggregate,
         color=WU_COLOR,
         linestyle="--",
-        linewidth=1.7,
-        label=f"Wu2019 aggregate: {wu_aggregate:.1f}%",
+        linewidth=1.9,
         zorder=1,
     )
-    axes[1].set_xticks([0.0], ["Trained JumpGrad\n128 fresh seeds"])
-    axes[1].set_xlim(-0.72, 0.72)
-    axes[1].set_ylabel("8-condition aggregate reduction (%)")
-    axes[1].legend(loc="lower right", frameon=False)
-    _style_axis(axes[1])
-    _panel_label(axes[1], "b", inside=True)
+    axis.text(
+        wu_aggregate + 0.08,
+        0.34,
+        f"Wu2019 = {wu_aggregate:.1f}%",
+        color=WU_COLOR,
+        fontsize=11.0,
+        fontweight="bold",
+        ha="left",
+        va="center",
+    )
+    axis.text(
+        aggregate_mean,
+        0.20,
+        f"Mean = {aggregate_mean:.2f}%",
+        color=TRAINED_COLOR,
+        fontsize=11.0,
+        fontweight="bold",
+        ha="center",
+        va="bottom",
+    )
+    axis.text(
+        0.975,
+        0.90,
+        f"{above_wu_count}/128 above Wu2019",
+        transform=axis.transAxes,
+        color=FRAME_COLOR,
+        fontsize=11.5,
+        fontweight="bold",
+        ha="right",
+        va="top",
+    )
+    lower = min(wu_aggregate, float(np.min(trained_aggregate))) - 0.45
+    upper = max(wu_aggregate, float(np.max(trained_aggregate))) + 0.45
+    axis.set_xlim(lower, upper)
+    axis.set_ylim(-0.53, 0.53)
+    axis.set_yticks([0.0], ["JumpGrad\nfresh seeds"])
+    axis.set_xlabel("Aggregate reduction vs passive (%)")
+    _style_axis(axis)
 
-    figure.tight_layout(w_pad=2.2)
+    figure.tight_layout()
     figure.savefig(
         HELD_OUT_PATH,
         dpi=300,
@@ -556,7 +523,7 @@ def render_held_out(result: dict) -> float:
         facecolor="white",
     )
     plt.close(figure)
-    return wu_aggregate
+    return wu_aggregate, above_wu_count
 
 
 def validate_outputs(*, validate_hero: bool = True) -> None:
@@ -584,20 +551,22 @@ def main() -> None:
     OUTPUT_DIRECTORY.mkdir(parents=True, exist_ok=True)
     result = load_generalization()
     if arguments.held_out_only:
-        wu_aggregate = render_held_out(result)
+        wu_aggregate, above_wu_count = render_held_out(result)
         validate_outputs(validate_hero=False)
         print(f"wu2019_aggregate_reduction_percent={wu_aggregate:.12g}")
+        print(f"above_wu2019={above_wu_count}/128")
         print(f"output={HELD_OUT_PATH.relative_to(ROOT)}")
         return
     replay = replay_hero(result)
     render_hero(replay)
-    wu_aggregate = render_held_out(result)
+    wu_aggregate, above_wu_count = render_held_out(result)
     validate_outputs()
     print(
         f"hero_frames={NUM_GIF_FRAMES} deformation_scale="
         f"{replay['deformation_scale']:.12g}"
     )
     print(f"wu2019_aggregate_reduction_percent={wu_aggregate:.12g}")
+    print(f"above_wu2019={above_wu_count}/128")
     print(f"outputs={HERO_PATH.relative_to(ROOT)},{HELD_OUT_PATH.relative_to(ROOT)}")
 
 
