@@ -97,7 +97,17 @@ MESH_EDGE_COLOR = "#3B4650"
 WU_COLOR = "#5C8FBA"
 INITIAL_COLOR = "#AFC2D4"
 TRAINED_COLOR = "#1F7894"
-PLASMA = mpl.colormaps["plasma"]
+HERO_BLUE = mpl.colors.LinearSegmentedColormap.from_list(
+    "jumpgrad_blue",
+    (
+        "#EAF4FC",
+        "#B8DAF3",
+        "#72B6E6",
+        "#2E8DD5",
+        "#0878F9",
+        "#063B78",
+    ),
+)
 
 METHOD_LABELS = {
     "passive": "Passive",
@@ -297,7 +307,7 @@ def replay_hero(generalization: dict) -> dict:
 def _add_beam_panel(axis, method: str, normalization, limits):
     collection = PolyCollection(
         SYSTEM.points[SYSTEM.cells],
-        cmap=PLASMA,
+        cmap=HERO_BLUE,
         norm=normalization,
         edgecolor=MESH_EDGE_COLOR,
         linewidth=0.25,
@@ -368,7 +378,7 @@ def render_hero(replay: dict) -> None:
 
     colorbar_axis = figure.add_axes([0.15, 0.115, 0.70, 0.050])
     colorbar = figure.colorbar(
-        mpl.cm.ScalarMappable(norm=normalization, cmap=PLASMA),
+        mpl.cm.ScalarMappable(norm=normalization, cmap=HERO_BLUE),
         cax=colorbar_axis,
         orientation="horizontal",
     )
@@ -642,10 +652,16 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Render frozen JumpGrad README visualizations."
     )
-    parser.add_argument(
+    output_mode = parser.add_mutually_exclusive_group()
+    output_mode.add_argument(
         "--held-out-only",
         action="store_true",
         help="render only the fresh-seed held-out comparison",
+    )
+    output_mode.add_argument(
+        "--hero-only",
+        action="store_true",
+        help="render only the frozen three-method hero animation",
     )
     arguments = parser.parse_args()
     OUTPUT_DIRECTORY.mkdir(parents=True, exist_ok=True)
@@ -663,6 +679,14 @@ def main() -> None:
         return
     replay = replay_hero(result)
     render_hero(replay)
+    if arguments.hero_only:
+        validate_outputs()
+        print(
+            f"hero_frames={NUM_GIF_FRAMES} deformation_scale="
+            f"{replay['deformation_scale']:.12g}"
+        )
+        print(f"output={HERO_PATH.relative_to(ROOT)}")
+        return
     initial_mean, trained_mean, improvement_mean, improved_count = (
         render_held_out(result)
     )

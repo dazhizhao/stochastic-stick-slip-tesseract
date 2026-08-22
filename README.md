@@ -1,6 +1,6 @@
 <h1 align="center">
-  <img src="assets/jumpgrad_logo.png" width="88" alt="JumpGrad logo" align="middle">&nbsp;&nbsp;JumpGrad: End-to-End Gradient Optimization through<br>
-  Discrete Stochastic Mechanics
+  <img src="assets/jumpgrad_logo.png" width="96" alt="JumpGrad logo" align="middle">&nbsp;&nbsp;JumpGrad: End-to-End Gradient Optimization<br>
+  through Discrete Stochastic Mechanics
 </h1>
 
 <p align="center">
