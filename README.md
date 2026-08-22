@@ -1,5 +1,5 @@
 <h1 align="center">
-  <img src="assets/jumpgrad_logo.png" width="56" alt="JumpGrad logo" align="middle">&nbsp;&nbsp;JumpGrad: End-to-End Gradient Optimization&emsp;&emsp;&nbsp;<br>
+  <img src="assets/jumpgrad_logo.png" width="68" alt="JumpGrad logo" align="middle">&nbsp;&nbsp;JumpGrad: End-to-End Gradient Optimization&emsp;&emsp;&nbsp;&nbsp;<br>
   through Discrete Stochastic Mechanics
 </h1>
 
