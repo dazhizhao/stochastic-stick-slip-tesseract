@@ -39,10 +39,6 @@ We first reproduced the Wu2019 2ω friction-control method on the same JAX-FEM b
 
 JumpGrad replaces smooth modulation with a genuinely discrete actuator. At every time step, each contact is commanded to one of two frozen preload levels; the learned coefficients change only the Markov transition rates.
 
-<p align="center">
-  <img src="outputs/jumpgrad_visuals/wu_vs_jumpgrad_control.gif" width="700" alt="Wu2019 smooth preload modulation compared with JumpGrad hard LOW HIGH switching">
-</p>
-
 Wu2019 here means its control method reproduced on this numerical JAX-FEM/Jenkins benchmark, not the original experimental structure or solver.
 
 ## 4. Why ordinary AD fails
@@ -73,10 +69,18 @@ The controller receives normalized excitation amplitude and frequency and output
 
 During the backward pass, the mechanics Tesseract estimates the cotangent of `q` using two coefficients × centered finite differences. The controller Tesseract then propagates that cotangent to all 354 network parameters with PyTorch autograd. The nonzero end-to-end gradient drives a 100-update Adam training run whose fixed monitoring objective decreases by about 19.6%.
 
+<p align="center">
+  <img src="outputs/jumpgrad_visuals/optimization.gif" width="700" alt="Frozen JumpGrad optimization replay showing the fixed-monitor objective and tip response over 100 updates">
+</p>
+
 ## 7. Results
 
 <p align="center">
   <img src="outputs/jumpgrad_visuals/main_results.png" width="680" alt="Local resonance response and peak reduction for Passive, Wu2019, and JumpGrad">
+</p>
+
+<p align="center">
+  <img src="outputs/jumpgrad_visuals/held_out.png" width="680" alt="Paired Wu2019 and JumpGrad vibration reductions across all eight held-out operating conditions">
 </p>
 
 Wu2019 reduces the sampled resonance peak by about 20.2% relative to passive friction. JumpGrad reaches about 23.9% reduction, and its sampled peak is approximately 4.6% lower than the reproduced Wu2019 baseline. Both peaks lie inside the sampled local-FRF window.

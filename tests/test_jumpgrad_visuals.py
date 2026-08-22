@@ -83,6 +83,38 @@ def test_shared_deformation_scale_uses_all_methods():
     assert scale == visuals.TARGET_DEFORMATION / 4.0
 
 
+def test_shared_hero_color_limits_use_every_method_and_frame():
+    indices = np.asarray([visuals.STABLE_START, visuals.STABLE_START + 1])
+    fields = []
+    for value in (1.0, 2.0, 5.0):
+        field = np.zeros((NUM_STEPS, len(visuals.SYSTEM.points), 2))
+        field[indices, :, 0] = value
+        fields.append(field)
+    lower, upper = visuals.shared_cell_color_limits(fields, indices)
+    assert lower == 1.0
+    assert upper == 5.0
+
+
+def test_optimization_replay_registration_and_saved_history():
+    j1 = visuals.load_frozen_sources()["j1"]
+    q_history = np.asarray(j1["training"]["q_history"])
+    assert visuals.OPTIMIZATION_CONDITION_INDEX == 2
+    assert visuals.MONITOR_STREAM == 11
+    assert visuals.OPTIMIZATION_REALIZATION == 0
+    assert q_history.shape == (101, 8, 2)
+    np.testing.assert_allclose(
+        visuals.TRAINING_CONDITIONS[visuals.OPTIMIZATION_CONDITION_INDEX],
+        [1.0, 1.0],
+    )
+    assert len(j1["training"]["monitor_iterations"]) == 11
+
+
+def test_held_out_visual_uses_all_eight_frozen_conditions():
+    values = visuals.held_out_reductions(visuals.load_frozen_sources()["j1"])
+    assert set(values) == {"wu", "jumpgrad"}
+    assert all(value.shape == (8,) for value in values.values())
+
+
 def test_gif_contract_and_visual_asset_order(tmp_path: Path):
     path = tmp_path / "test.gif"
     frames = [
@@ -99,10 +131,11 @@ def test_gif_contract_and_visual_asset_order(tmp_path: Path):
     assert visuals.validate_gif(path) == (100, (4, 3))
     expected = (
         "passive_wu_jumpgrad.gif",
-        "wu_vs_jumpgrad_control.gif",
+        "optimization.gif",
+        "tesseract_pipeline.png",
         "main_results.png",
         "gradient_story.png",
-        "tesseract_pipeline.png",
+        "held_out.png",
     )
     assert tuple(path.name for path in visuals.EXPECTED_OUTPUTS) == expected
     actual = tuple(
@@ -112,8 +145,12 @@ def test_gif_contract_and_visual_asset_order(tmp_path: Path):
     )
     assert set(actual) == set(expected)
     assert visuals.validate_gif(visuals.MAIN_GIF_PATH)[0] == 100
-    assert visuals.validate_gif(visuals.CONTROL_GIF_PATH)[0] == 100
+    assert visuals.validate_gif(
+        visuals.OPTIMIZATION_GIF_PATH,
+        expected_frames=visuals.NUM_OPTIMIZATION_FRAMES,
+    )[0] == 101
     assert set(visuals.METHOD_LABELS.values()) == {"Passive", "Wu2019", "JumpGrad"}
+    assert "wu_vs_jumpgrad_control.gif" not in actual
 
 
 def test_pipeline_only_cli_skips_scientific_replay(tmp_path: Path, monkeypatch):
@@ -143,6 +180,11 @@ def test_readme_is_tesseract_first_without_numbered_captions():
         "Derivative strategy",
         "Physics",
         "outputs/jumpgrad_visuals/tesseract_pipeline.png",
+        "outputs/jumpgrad_visuals/passive_wu_jumpgrad.gif",
+        "outputs/jumpgrad_visuals/optimization.gif",
+        "outputs/jumpgrad_visuals/main_results.png",
+        "outputs/jumpgrad_visuals/gradient_story.png",
+        "outputs/jumpgrad_visuals/held_out.png",
         "10.21105/joss.08385",
         "10.1016/j.cpc.2023.108802",
         "10.1016/S0927-0507(06)13019-4",
@@ -154,3 +196,4 @@ def test_readme_is_tesseract_first_without_numbered_captions():
     assert "Figure 2" not in readme
     assert "Figure 3" not in readme
     assert "Figure 4" not in readme
+    assert "wu_vs_jumpgrad_control.gif" not in readme

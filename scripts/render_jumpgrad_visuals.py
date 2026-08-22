@@ -30,13 +30,16 @@ import torch
 
 from stochastic_stick_slip.jumpgrad import (
     HELD_OUT_CONDITIONS,
+    MONITOR_STREAM,
     NUM_CONTROLLER_PARAMETERS,
     OMEGA_R,
+    TRAINING_CONDITIONS,
     WU_AMPLITUDE,
     WU_PHASE,
     build_jumpgrad_controller,
     condition_descriptors,
     functional_jumpgrad_controller,
+    jumpgrad_uniform_bank,
 )
 from stochastic_stick_slip.model import (
     BEAM_HEIGHT,
@@ -54,8 +57,6 @@ from stochastic_stick_slip.wu_v2 import (
 )
 from stochastic_stick_slip.wu_v2_markov import (
     NUM_STEPS,
-    PRELOAD_HIGH,
-    PRELOAD_LOW,
     evaluate_markov_bank,
     generate_hard_preload_history,
     markov_uniform_bank,
@@ -68,17 +69,19 @@ W2_PATH = ROOT / "outputs/wu_v2_head_to_head/results.json"
 OUTPUT_DIRECTORY = ROOT / "outputs/jumpgrad_visuals"
 
 MAIN_GIF_PATH = OUTPUT_DIRECTORY / "passive_wu_jumpgrad.gif"
-CONTROL_GIF_PATH = OUTPUT_DIRECTORY / "wu_vs_jumpgrad_control.gif"
+OPTIMIZATION_GIF_PATH = OUTPUT_DIRECTORY / "optimization.gif"
+PIPELINE_PATH = OUTPUT_DIRECTORY / "tesseract_pipeline.png"
 MAIN_RESULTS_PATH = OUTPUT_DIRECTORY / "main_results.png"
 GRADIENT_PATH = OUTPUT_DIRECTORY / "gradient_story.png"
-PIPELINE_PATH = OUTPUT_DIRECTORY / "tesseract_pipeline.png"
+HELD_OUT_PATH = OUTPUT_DIRECTORY / "held_out.png"
 
 EXPECTED_OUTPUTS = (
     MAIN_GIF_PATH,
-    CONTROL_GIF_PATH,
+    OPTIMIZATION_GIF_PATH,
+    PIPELINE_PATH,
     MAIN_RESULTS_PATH,
     GRADIENT_PATH,
-    PIPELINE_PATH,
+    HELD_OUT_PATH,
 )
 
 SELECTED_HELD_OUT_INDEX = 5
@@ -92,15 +95,20 @@ STABLE_START = 20 * STEPS_PER_PERIOD
 STABLE_STOP = 24 * STEPS_PER_PERIOD
 FRAME_STRIDE = 4
 NUM_GIF_FRAMES = 100
+NUM_OPTIMIZATION_FRAMES = 101
 GIF_FPS = 20
-TARGET_DEFORMATION = 0.16 * BEAM_LENGTH
+OPTIMIZATION_GIF_FPS = 12
+OPTIMIZATION_CONDITION_INDEX = 2
+OPTIMIZATION_REALIZATION = 0
+TARGET_DEFORMATION = 0.22 * BEAM_LENGTH
 REFERENCE_RTOL = 1e-10
 REFERENCE_ATOL = 1e-12
 
 FRAME_COLOR = "#20242A"
-PASSIVE_COLOR = "#858B91"
-WU_COLOR = "#35695C"
-JUMPGRAD_COLOR = "#B86D4B"
+PLASMA = mpl.colormaps["plasma"]
+PASSIVE_COLOR = mpl.colors.to_hex(PLASMA(0.12))
+WU_COLOR = mpl.colors.to_hex(PLASMA(0.50))
+JUMPGRAD_COLOR = mpl.colors.to_hex(PLASMA(0.82))
 MESH_EDGE_COLOR = "#30363D"
 
 METHOD_COLORS = {
@@ -313,18 +321,60 @@ def simulate_full_field(
     }
 
 
-def shared_deformation_scale(fields: list[np.ndarray]) -> tuple[float, float]:
-    """Return one physical amplification for every compared deformation field."""
+def shared_deformation_scale(
+    fields: list[np.ndarray], frame_indices: np.ndarray | None = None
+) -> tuple[float, float]:
+    """Return one physical amplification for every displayed deformation field."""
+    indices = (
+        np.arange(STABLE_START, STABLE_STOP)
+        if frame_indices is None
+        else np.asarray(frame_indices, dtype=int)
+    )
     magnitudes = np.concatenate(
-        [
-            np.linalg.norm(field[STABLE_START:STABLE_STOP], axis=2).ravel()
-            for field in fields
-        ]
+        [np.linalg.norm(field[indices], axis=2).ravel() for field in fields]
     )
     maximum = float(np.max(magnitudes))
     if not np.isfinite(maximum) or maximum <= 0.0:
         raise FloatingPointError("deformation replay has no finite motion")
     return TARGET_DEFORMATION / maximum, maximum
+
+
+def shared_cell_color_limits(
+    fields: list[np.ndarray], frame_indices: np.ndarray
+) -> tuple[float, float]:
+    """Use every displayed frame and method for one physical color scale."""
+    indices = np.asarray(frame_indices, dtype=int)
+    cell_values = []
+    for field in fields:
+        nodal_magnitude = np.linalg.norm(field[indices], axis=2)
+        cell_values.append(np.mean(nodal_magnitude[:, SYSTEM.cells], axis=2))
+    values = np.concatenate([value.ravel() for value in cell_values])
+    lower = float(np.min(values))
+    upper = float(np.max(values))
+    if not np.isfinite(lower + upper) or upper <= lower:
+        raise FloatingPointError("shared displacement color limits are invalid")
+    return lower, upper
+
+
+def shared_deformed_limits(replay: dict) -> tuple[tuple[float, float], tuple[float, float]]:
+    """Return one camera fitted to every displayed deformed vertex."""
+    vertices = np.concatenate(
+        [
+            SYSTEM.points[None, :, :]
+            + replay["deformation_scale"]
+            * replay["methods"][method]["field"][replay["frame_indices"]]
+            for method in ("passive", "wu", "jumpgrad")
+        ],
+        axis=0,
+    )
+    minimum = np.min(vertices, axis=(0, 1))
+    maximum = np.max(vertices, axis=(0, 1))
+    span = np.maximum(maximum - minimum, np.asarray([BEAM_LENGTH, BEAM_HEIGHT]))
+    padding = 0.07 * span
+    return (
+        (float(minimum[0] - padding[0]), float(maximum[0] + padding[0])),
+        (float(minimum[1] - padding[1]), float(maximum[1] + padding[1])),
+    )
 
 
 def replay_selected_condition(sources: dict) -> dict:
@@ -373,13 +423,13 @@ def replay_selected_condition(sources: dict) -> dict:
         ),
     }
     methods["jumpgrad"]["modes"] = np.asarray(modes, dtype=bool)
-    scale, maximum = shared_deformation_scale(
-        [method["field"] for method in methods.values()]
-    )
     frame_indices = np.arange(STABLE_START, STABLE_STOP, FRAME_STRIDE)
     if len(frame_indices) != NUM_GIF_FRAMES:
         raise AssertionError("registered GIF frame count changed")
-    return {
+    fields = [method["field"] for method in methods.values()]
+    scale, maximum = shared_deformation_scale(fields, frame_indices)
+    color_limits = shared_cell_color_limits(fields, frame_indices)
+    replay = {
         "representative": representative,
         "q": q,
         "omega": omega,
@@ -388,7 +438,54 @@ def replay_selected_condition(sources: dict) -> dict:
         "methods": methods,
         "deformation_scale": scale,
         "maximum_nodal_displacement": maximum,
+        "color_limits": color_limits,
         "frame_indices": frame_indices,
+    }
+    replay["axis_limits"] = shared_deformed_limits(replay)
+    return replay
+
+
+def replay_optimization(j1: dict) -> dict:
+    """Replay the saved q history on one fixed monitor realization."""
+    q_history = np.asarray(j1["training"]["q_history"], dtype=np.float64)
+    if q_history.shape != (NUM_OPTIMIZATION_FRAMES, len(TRAINING_CONDITIONS), 2):
+        raise AssertionError("saved optimization q history changed")
+    condition = TRAINING_CONDITIONS[OPTIMIZATION_CONDITION_INDEX]
+    omega = float(OMEGA_R * condition[1])
+    time_step, forcing = single_tone_forcing(
+        FORCING_AMPLITUDE * condition[0], omega, DIAGNOSTIC_NUM_PERIODS
+    )
+    times = time_step * np.arange(1, NUM_STEPS + 1, dtype=np.float64)
+    tape = jumpgrad_uniform_bank(
+        len(TRAINING_CONDITIONS), 16, MONITOR_STREAM, iteration=0
+    )[OPTIMIZATION_CONDITION_INDEX, OPTIMIZATION_REALIZATION]
+    traces = np.empty((NUM_OPTIMIZATION_FRAMES, STABLE_STOP - STABLE_START))
+    for iteration, q in enumerate(q_history[:, OPTIMIZATION_CONDITION_INDEX]):
+        result = evaluate_markov_bank(
+            q, forcing, tape[None, ...], times, omega, time_step
+        )
+        traces[iteration] = np.asarray(result["displacement"])[
+            0, STABLE_START:STABLE_STOP
+        ]
+        if iteration % 20 == 0 or iteration == 100:
+            print(f"optimization_replay={iteration:03d}/100", flush=True)
+    monitor_iterations = np.asarray(j1["training"]["monitor_iterations"], dtype=int)
+    monitor_objective = np.asarray(j1["training"]["monitor_objective"], dtype=float)
+    if (
+        not np.array_equal(monitor_iterations, np.arange(0, 101, 10))
+        or len(monitor_objective) != 11
+        or not np.all(np.isfinite(traces))
+    ):
+        raise AssertionError("registered optimization replay contract changed")
+    return {
+        "condition_index": OPTIMIZATION_CONDITION_INDEX,
+        "stream": MONITOR_STREAM,
+        "realization": OPTIMIZATION_REALIZATION,
+        "q_history": q_history,
+        "monitor_iterations": monitor_iterations,
+        "monitor_objective": monitor_objective,
+        "times_periods": np.arange(STABLE_STOP - STABLE_START) / STEPS_PER_PERIOD,
+        "traces": traces,
     }
 
 
@@ -442,25 +539,29 @@ def _panel_label(axis, label: str) -> None:
     )
 
 
-def _add_beam_panel(axis, method: str):
+def _add_beam_panel(axis, method: str, normalization: mpl.colors.Normalize, limits):
     collection = PolyCollection(
         SYSTEM.points[SYSTEM.cells],
-        facecolor=mpl.colors.to_rgba(METHOD_COLORS[method], 0.30),
+        cmap=PLASMA,
+        norm=normalization,
         edgecolor=MESH_EDGE_COLOR,
-        linewidth=0.28,
+        linewidth=0.20,
     )
     axis.add_collection(collection)
     contacts = axis.scatter(
-        [], [], s=24, facecolor="white", edgecolor=METHOD_COLORS[method],
+        [], [], s=25, facecolor="white", edgecolor=FRAME_COLOR,
         linewidth=1.2, zorder=5,
     )
-    axis.set_xlim(-0.20, BEAM_LENGTH + 0.20)
-    axis.set_ylim(-0.20, BEAM_HEIGHT + 0.20)
+    axis.plot([0.0, 0.0], [-0.045, BEAM_HEIGHT + 0.045], color=FRAME_COLOR, lw=2.0)
+    for offset in np.linspace(-0.04, 0.04, 5):
+        axis.plot([-0.035, 0.0], [offset - 0.025, offset], color=FRAME_COLOR, lw=0.7)
+    axis.set_xlim(*limits[0])
+    axis.set_ylim(*limits[1])
     axis.set_aspect("equal")
-    _style_axis(axis, hide_ticks=True)
+    axis.set_axis_off()
     axis.text(
-        0.5, 0.94, METHOD_LABELS[method], transform=axis.transAxes,
-        ha="center", va="top", fontweight="bold",
+        0.5, 0.98, METHOD_LABELS[method], transform=axis.transAxes,
+        ha="center", va="top", color=FRAME_COLOR, fontsize=10, fontweight="bold",
     )
     return collection, contacts
 
@@ -472,17 +573,44 @@ def _deformed_vertices(replay: dict, method: str, step: int) -> np.ndarray:
 
 def render_main_gif(replay: dict) -> None:
     _configure_plotting()
-    figure, axes = plt.subplots(1, 3, figsize=(9.0, 2.35), dpi=100)
+    figure, axes = plt.subplots(1, 3, figsize=(9.0, 2.55), dpi=100)
+    normalization = mpl.colors.Normalize(*replay["color_limits"])
     collections = {}
     contacts = {}
     for axis, method in zip(axes, ("passive", "wu", "jumpgrad"), strict=True):
-        collections[method], contacts[method] = _add_beam_panel(axis, method)
+        collections[method], contacts[method] = _add_beam_panel(
+            axis, method, normalization, replay["axis_limits"]
+        )
+    figure.text(
+        0.015,
+        0.96,
+        f"deformation ×{replay['deformation_scale']:.1f}",
+        ha="left",
+        va="top",
+        fontsize=8,
+        color=FRAME_COLOR,
+    )
+    colorbar = figure.colorbar(
+        mpl.cm.ScalarMappable(norm=normalization, cmap=PLASMA),
+        ax=axes,
+        orientation="horizontal",
+        fraction=0.075,
+        pad=0.08,
+        aspect=45,
+    )
+    colorbar.set_label("Displacement magnitude")
+    colorbar.outline.set_linewidth(0.7)
+    colorbar.ax.tick_params(direction="in", labelsize=7)
 
     def update(step):
         artists = []
         for method in ("passive", "wu", "jumpgrad"):
             deformed = _deformed_vertices(replay, method, int(step))
             collections[method].set_verts(deformed[SYSTEM.cells])
+            magnitude = np.linalg.norm(
+                replay["methods"][method]["field"][int(step)], axis=1
+            )
+            collections[method].set_array(np.mean(magnitude[SYSTEM.cells], axis=1))
             contacts[method].set_offsets(deformed[SYSTEM.contact_nodes])
             artists.extend((collections[method], contacts[method]))
         return artists
@@ -495,73 +623,64 @@ def render_main_gif(replay: dict) -> None:
         blit=False,
         repeat=True,
     )
-    figure.tight_layout(pad=1.0)
+    figure.subplots_adjust(left=0.025, right=0.985, top=0.88, bottom=0.24, wspace=0.035)
     animation.save(MAIN_GIF_PATH, writer=PillowWriter(fps=GIF_FPS), dpi=100)
     plt.close(figure)
 
 
-def render_control_gif(replay: dict) -> None:
+def render_optimization_gif(replay: dict) -> None:
     _configure_plotting()
-    figure = plt.figure(figsize=(7.2, 4.2), dpi=100)
-    grid = figure.add_gridspec(2, 2, height_ratios=(2.1, 1.0), hspace=0.27, wspace=0.22)
-    beam_axes = (figure.add_subplot(grid[0, 0]), figure.add_subplot(grid[0, 1]))
-    signal_axes = (figure.add_subplot(grid[1, 0]), figure.add_subplot(grid[1, 1]))
-    collections = {}
-    contacts = {}
-    for axis, method in zip(beam_axes, ("wu", "jumpgrad"), strict=True):
-        collections[method], contacts[method] = _add_beam_panel(axis, method)
+    figure, axes = plt.subplots(2, 1, figsize=(7.2, 4.6), dpi=100)
+    monitor_line, = axes[0].plot([], [], "o-", color=JUMPGRAD_COLOR, lw=1.8, ms=4.2)
+    current_monitor, = axes[0].plot([], [], "o", color=PLASMA(0.98), ms=6.0)
+    axes[0].set_xlim(0, 100)
+    monitor = replay["monitor_objective"]
+    monitor_pad = 0.08 * np.ptp(monitor)
+    axes[0].set_ylim(float(np.min(monitor) - monitor_pad), float(np.max(monitor) + monitor_pad))
+    axes[0].set_xlabel("Update")
+    axes[0].set_ylabel("Fixed-monitor objective")
+    _style_axis(axes[0])
+    _panel_label(axes[0], "a")
 
-    periods = (
-        np.arange(NUM_STEPS, dtype=np.float64) - STABLE_START
-    ) / STEPS_PER_PERIOD
-    commands = {
-        "wu": replay["methods"]["wu"]["preload"][:, 0],
-        "jumpgrad": replay["methods"]["jumpgrad"]["preload"][:, 0],
-    }
-    markers = {}
-    verticals = {}
-    for axis, method in zip(signal_axes, ("wu", "jumpgrad"), strict=True):
-        axis.plot(
-            periods[STABLE_START:STABLE_STOP],
-            commands[method][STABLE_START:STABLE_STOP],
-            color=METHOD_COLORS[method],
-            linewidth=1.35,
-            drawstyle="steps-post" if method == "jumpgrad" else "default",
-        )
-        markers[method], = axis.plot(
-            [], [], "o", color=METHOD_COLORS[method], markersize=4.5,
-        )
-        verticals[method] = axis.axvline(0.0, color=FRAME_COLOR, linewidth=0.7, alpha=0.65)
-        axis.set_xlim(0.0, 4.0)
-        axis.set_ylim(PRELOAD_LOW - 0.003, PRELOAD_HIGH + 0.003)
-        axis.set_xlabel("Steady-cycle time (periods)")
-        _style_axis(axis)
-    signal_axes[0].set_ylabel("Preload")
-    signal_axes[1].set_yticklabels([])
+    periods = replay["times_periods"]
+    traces = replay["traces"]
+    axes[1].plot(periods, traces[0], color=PASSIVE_COLOR, lw=1.0, alpha=0.75, label="Initial")
+    response_line, = axes[1].plot([], [], color=JUMPGRAD_COLOR, lw=1.5, label="Current")
+    axes[1].set_xlim(0.0, 4.0)
+    response_pad = 0.08 * np.ptp(traces)
+    axes[1].set_ylim(float(np.min(traces) - response_pad), float(np.max(traces) + response_pad))
+    axes[1].set_xlabel("Steady-cycle time (periods)")
+    axes[1].set_ylabel("Tip displacement")
+    axes[1].legend(loc="upper right")
+    _style_axis(axes[1])
+    _panel_label(axes[1], "b")
+    status = figure.text(0.98, 0.98, "", ha="right", va="top", color=FRAME_COLOR)
 
-    def update(step):
-        artists = []
-        current_period = (int(step) - STABLE_START) / STEPS_PER_PERIOD
-        for method in ("wu", "jumpgrad"):
-            deformed = _deformed_vertices(replay, method, int(step))
-            collections[method].set_verts(deformed[SYSTEM.cells])
-            contacts[method].set_offsets(deformed[SYSTEM.contact_nodes])
-            markers[method].set_data([current_period], [commands[method][int(step)]])
-            verticals[method].set_xdata([current_period, current_period])
-            artists.extend(
-                (collections[method], contacts[method], markers[method], verticals[method])
-            )
-        return artists
+    def update(iteration):
+        iteration = int(iteration)
+        registered = replay["monitor_iterations"] <= iteration
+        x = replay["monitor_iterations"][registered]
+        y = replay["monitor_objective"][registered]
+        monitor_line.set_data(x, y)
+        current_monitor.set_data([x[-1]], [y[-1]])
+        response_line.set_data(periods, traces[iteration])
+        status.set_text(f"Iteration {iteration:03d}   Monitor objective = {y[-1]:.3f}")
+        return monitor_line, current_monitor, response_line, status
 
     animation = FuncAnimation(
         figure,
         update,
-        frames=replay["frame_indices"],
-        interval=1000 / GIF_FPS,
+        frames=np.arange(NUM_OPTIMIZATION_FRAMES),
+        interval=1000 / OPTIMIZATION_GIF_FPS,
         blit=False,
         repeat=True,
     )
-    animation.save(CONTROL_GIF_PATH, writer=PillowWriter(fps=GIF_FPS), dpi=100)
+    figure.tight_layout(pad=1.1, h_pad=1.5)
+    animation.save(
+        OPTIMIZATION_GIF_PATH,
+        writer=PillowWriter(fps=OPTIMIZATION_GIF_FPS),
+        dpi=100,
+    )
     plt.close(figure)
 
 
@@ -683,6 +802,67 @@ def render_gradient_story(j1: dict) -> None:
     plt.close(figure)
 
 
+def held_out_reductions(j1: dict) -> dict[str, np.ndarray]:
+    """Return all eight frozen held-out reductions without filtering."""
+    methods = j1["evaluations"]["held_out"]["methods"]
+    values = {
+        "wu": np.asarray(
+            methods["wu_continuous_2omega"]["reduction_vs_passive_percent"],
+            dtype=np.float64,
+        ),
+        "jumpgrad": np.asarray(
+            methods["jumpgrad"]["reduction_vs_passive_percent"],
+            dtype=np.float64,
+        ),
+    }
+    if any(value.shape != (8,) for value in values.values()):
+        raise AssertionError("held-out result set must contain all eight conditions")
+    return values
+
+
+def render_held_out(j1: dict) -> None:
+    _configure_plotting()
+    values = held_out_reductions(j1)
+    labels = [
+        f"{amplitude:.1f}\n{frequency:.2f}"
+        for amplitude, frequency in HELD_OUT_CONDITIONS
+    ]
+    x = np.arange(len(labels))
+    figure, axis = plt.subplots(figsize=(7.2, 3.1))
+    for index in x:
+        axis.plot(
+            [index, index],
+            [values["wu"][index], values["jumpgrad"][index]],
+            color=mpl.colors.to_hex(PLASMA(0.32)),
+            linewidth=1.1,
+            alpha=0.8,
+        )
+    axis.plot(
+        x,
+        values["wu"],
+        "o",
+        color=WU_COLOR,
+        markersize=5.0,
+        label="Wu2019",
+    )
+    axis.plot(
+        x,
+        values["jumpgrad"],
+        "o",
+        color=JUMPGRAD_COLOR,
+        markersize=5.0,
+        label="JumpGrad",
+    )
+    axis.set_xticks(x, labels)
+    axis.set_xlabel(r"Held-out condition, $F/F_0$ and $\omega/\omega_r$")
+    axis.set_ylabel("Reduction vs passive (%)")
+    axis.legend(loc="best")
+    _style_axis(axis)
+    figure.tight_layout()
+    figure.savefig(HELD_OUT_PATH, dpi=300, bbox_inches="tight", facecolor="white")
+    plt.close(figure)
+
+
 def render_tesseract_pipeline(path: Path = PIPELINE_PATH) -> None:
     """Render the two peer Tesseract blocks and their forward/backward flow."""
     _configure_plotting()
@@ -697,14 +877,14 @@ def render_tesseract_pipeline(path: Path = PIPELINE_PATH) -> None:
     boxes = (
         {
             "x": 0.14,
-            "accent": JUMPGRAD_COLOR,
+            "accent": mpl.colors.to_hex(PLASMA(0.35)),
             "header": "TESSERACT BLOCK 01",
             "name": "JumpGrad Controller",
             "lines": ("PyTorch MLP", "VJP: PyTorch autograd"),
         },
         {
             "x": 0.55,
-            "accent": WU_COLOR,
+            "accent": mpl.colors.to_hex(PLASMA(0.78)),
             "header": "TESSERACT BLOCK 02",
             "name": "Stochastic Mechanics",
             "lines": (
@@ -835,7 +1015,9 @@ def render_tesseract_pipeline(path: Path = PIPELINE_PATH) -> None:
     plt.close(figure)
 
 
-def validate_gif(path: Path, expected_frames: int = NUM_GIF_FRAMES) -> tuple[int, tuple[int, int]]:
+def validate_gif(
+    path: Path, expected_frames: int = NUM_GIF_FRAMES
+) -> tuple[int, tuple[int, int]]:
     """Validate GitHub-compatible animation metadata."""
     with Image.open(path) as image:
         if not getattr(image, "is_animated", False):
@@ -850,17 +1032,17 @@ def validate_gif(path: Path, expected_frames: int = NUM_GIF_FRAMES) -> tuple[int
     return frames, size
 
 
-def _validate_outputs(replay: dict) -> None:
+def _validate_outputs(replay: dict, optimization: dict) -> None:
     actual = tuple(sorted(path.name for path in OUTPUT_DIRECTORY.iterdir() if path.is_file()))
     expected = tuple(sorted(path.name for path in EXPECTED_OUTPUTS))
     if actual != expected:
         raise AssertionError(f"visual output contract mismatch: {actual}")
-    main_metadata = validate_gif(MAIN_GIF_PATH)
-    control_metadata = validate_gif(CONTROL_GIF_PATH)
-    if main_metadata[0] != control_metadata[0]:
-        raise AssertionError("GIF frame counts differ")
+    validate_gif(MAIN_GIF_PATH, NUM_GIF_FRAMES)
+    validate_gif(OPTIMIZATION_GIF_PATH, NUM_OPTIMIZATION_FRAMES)
     if not np.isfinite(replay["deformation_scale"]):
         raise FloatingPointError("shared deformation scale is non-finite")
+    if optimization["q_history"].shape[0] != NUM_OPTIMIZATION_FRAMES:
+        raise AssertionError("optimization replay frame count changed")
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -892,12 +1074,14 @@ def main(argv: list[str] | None = None) -> None:
     banks = confirmation_banks()
     jumpgrad_frf = evaluate_jumpgrad_local_frf(sources, banks)
     replay = replay_selected_condition(sources)
+    optimization = replay_optimization(sources["j1"])
     render_main_gif(replay)
-    render_control_gif(replay)
+    render_optimization_gif(optimization)
     main_results = render_main_results(sources, jumpgrad_frf)
     render_gradient_story(sources["j1"])
     render_tesseract_pipeline(PIPELINE_PATH)
-    _validate_outputs(replay)
+    render_held_out(sources["j1"])
+    _validate_outputs(replay, optimization)
     print(
         f"jumpgrad_peak={main_results['peaks']['jumpgrad']['amplitude']:.12g} "
         f"wu_peak={main_results['peaks']['wu']['amplitude']:.12g} "
