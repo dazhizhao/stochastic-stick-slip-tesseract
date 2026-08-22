@@ -1,10 +1,10 @@
-# JumpGrad: End-to-End Optimization through Discrete Stochastic Mechanics
+# JumpGrad: End-to-End Gradient Optimization through Discrete Stochastic Mechanics
 
 <p align="center">
   <img src="outputs/jumpgrad_visuals/passive_wu_jumpgrad.gif" width="760" alt="Passive, Wu2019, and JumpGrad beam vibration under the same operating condition">
 </p>
 
-JumpGrad is a [Tesseract Hackathon 2026](https://pasteurlabs.ai/tesseract-hackathon-2026/) **Track 03 — Hybrid ML + mechanistic models** entry. It trains a PyTorch controller through a JAX-based frictional mechanics solver whose hard random switching events make the sampled physics gradient invisible to ordinary automatic differentiation.
+JumpGrad is a [Tesseract Hackathon 2026](https://pasteurlabs.ai/tesseract-hackathon-2026/) **Track 03 — Hybrid ML + mechanistic models** entry. It performs end-to-end gradient optimization of a PyTorch controller through a JAX-based frictional mechanics solver whose hard random switching events make the sampled physics gradient invisible to ordinary automatic differentiation.
 
 ## 1. Overview
 
@@ -80,7 +80,7 @@ During the backward pass, the mechanics Tesseract estimates the cotangent of `q`
 </p>
 
 <p align="center">
-  <img src="outputs/jumpgrad_visuals/held_out.png" width="680" alt="Paired Wu2019 and JumpGrad vibration reductions across all eight held-out operating conditions">
+  <img src="outputs/jumpgrad_visuals/held_out.png" width="680" alt="Paired Wu2019 and JumpGrad vibration reductions and their signed difference across eight held-out operating conditions">
 </p>
 
 Wu2019 reduces the sampled resonance peak by about 20.2% relative to passive friction. JumpGrad reaches about 23.9% reduction, and its sampled peak is approximately 4.6% lower than the reproduced Wu2019 baseline. Both peaks lie inside the sampled local-FRF window.
