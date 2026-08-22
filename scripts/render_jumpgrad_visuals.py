@@ -97,17 +97,7 @@ MESH_EDGE_COLOR = "#3B4650"
 WU_COLOR = "#5C8FBA"
 INITIAL_COLOR = "#AFC2D4"
 TRAINED_COLOR = "#1F7894"
-HERO_BLUE = mpl.colors.LinearSegmentedColormap.from_list(
-    "jumpgrad_blue",
-    (
-        "#EAF4FC",
-        "#B8DAF3",
-        "#72B6E6",
-        "#2E8DD5",
-        "#0878F9",
-        "#063B78",
-    ),
-)
+HERO_COLORMAP = mpl.colormaps["RdBu"]
 
 METHOD_LABELS = {
     "passive": "Passive",
@@ -307,7 +297,7 @@ def replay_hero(generalization: dict) -> dict:
 def _add_beam_panel(axis, method: str, normalization, limits):
     collection = PolyCollection(
         SYSTEM.points[SYSTEM.cells],
-        cmap=HERO_BLUE,
+        cmap=HERO_COLORMAP,
         norm=normalization,
         edgecolor=MESH_EDGE_COLOR,
         linewidth=0.25,
@@ -376,9 +366,9 @@ def render_hero(replay: dict) -> None:
             axis, method, normalization, replay["axis_limits"]
         )
 
-    colorbar_axis = figure.add_axes([0.15, 0.115, 0.70, 0.050])
+    colorbar_axis = figure.add_axes([0.15, 0.160, 0.70, 0.050])
     colorbar = figure.colorbar(
-        mpl.cm.ScalarMappable(norm=normalization, cmap=HERO_BLUE),
+        mpl.cm.ScalarMappable(norm=normalization, cmap=HERO_COLORMAP),
         cax=colorbar_axis,
         orientation="horizontal",
     )
