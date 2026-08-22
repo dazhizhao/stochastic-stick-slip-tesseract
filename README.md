@@ -1,9 +1,10 @@
 <h1 align="center">
-  <img src="assets/jumpgrad_logo.png" width="64" alt="JumpGrad logo" align="middle">&nbsp;&nbsp;JumpGrad: End-to-End Gradient Optimization&emsp;&emsp;&nbsp;<br>
+  <img src="assets/jumpgrad_logo.png" width="56" alt="JumpGrad logo" align="middle">&nbsp;&nbsp;JumpGrad: End-to-End Gradient Optimization&emsp;&emsp;&nbsp;<br>
   through Discrete Stochastic Mechanics
 </h1>
 
 <p align="center">
+  <a href="https://pasteurlabs.ai/tesseract-hackathon-2026/">Tesseract Hackathon 2026</a> · <strong>Track 03 — Hybrid ML + Mechanistic Models</strong><br>
   <a href="#1-problem">Problem</a> · <a href="#2-method">Method</a> · <a href="#3-why-tesseract">Why Tesseract</a> · <a href="#4-results">Results</a> · <a href="#5-reproduce">Reproduce</a>
 </p>
 
@@ -21,7 +22,7 @@ JumpGrad addresses this gap: it trains a neural controller end to end through th
 
 ## 2. Method
 
-JumpGrad is a [Tesseract Hackathon 2026](https://pasteurlabs.ai/tesseract-hackathon-2026/) **Track 03 — Hybrid ML + mechanistic models** entry. It combines a PyTorch neural controller, hard Markov switching, JAX-FEM mechanics, Jenkins friction, and custom gradient rules through Tesseract.
+JumpGrad combines a PyTorch neural controller, hard Markov switching, JAX-FEM mechanics, Jenkins friction, and custom gradient rules through Tesseract.
 
 ```text
 Operating condition
