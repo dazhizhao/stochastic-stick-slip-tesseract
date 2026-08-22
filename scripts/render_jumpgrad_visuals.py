@@ -97,7 +97,7 @@ MESH_EDGE_COLOR = "#3B4650"
 WU_COLOR = "#5C8FBA"
 INITIAL_COLOR = "#AFC2D4"
 TRAINED_COLOR = "#1F7894"
-HERO_COLORMAP = mpl.colormaps["RdBu"]
+HERO_COLORMAP = mpl.colormaps["coolwarm"]
 
 METHOD_LABELS = {
     "passive": "Passive",
