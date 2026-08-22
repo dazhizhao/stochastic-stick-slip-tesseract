@@ -5,7 +5,7 @@
 <h1 align="center">JumpGrad: End-to-End Gradient Optimization through Discrete Stochastic Mechanics</h1>
 
 <p align="center">
-  <a href="#1-problem">Problem</a> · <a href="#2-method">Method</a> · <a href="#3-results">Results</a> · <a href="#4-why-tesseract">Why Tesseract</a> · <a href="#5-reproduce">Reproduce</a>
+  <a href="#1-problem">Problem</a> · <a href="#2-method">Method</a> · <a href="#3-why-tesseract">Why Tesseract</a> · <a href="#4-results">Results</a> · <a href="#5-reproduce">Reproduce</a>
 </p>
 
 <p align="center">
@@ -48,23 +48,7 @@ The [`jumpgrad_controller`](tesseracts/jumpgrad_controller/tesseract_api.py) Tes
 
 Together, these two components form one end-to-end trainable system. The controller has 354 parameters, and the registered experiment optimizes them with 100 Adam updates while preserving the hard stochastic mechanics.
 
-## 3. Results
-
-JumpGrad produces a trainable end-to-end gradient through the discrete stochastic simulator and improves vibration suppression on both the benchmark and fresh random realizations.
-
-On the same numerical JAX-FEM/Jenkins benchmark, the reproduced Wu2019 control method reduces the sampled resonance peak by about 20.2% relative to passive friction. JumpGrad reaches **23.9%** reduction. Both peaks lie inside the sampled local-FRF window.
-
-<p align="center">
-  <img src="outputs/jumpgrad_visuals/main_results.png" width="680" alt="Local resonance response and peak reduction for Passive, Wu2019, and JumpGrad">
-</p>
-
-The frozen controller was evaluated on 128 unseen random realizations, each aggregated with equal weight across the same eight held-out operating conditions. Training improves the mean aggregate reduction from **2.99% → 21.11%**, and **128/128** realizations improve. Because the MLP receives forcing amplitude and frequency, it learns condition-dependent switching parameters rather than one fixed setting.
-
-<p align="center">
-  <img src="outputs/jumpgrad_visuals/held_out.png" width="680" alt="Initial and Trained JumpGrad aggregate reductions with paired fresh-seed improvements">
-</p>
-
-## 4. Why Tesseract
+## 3. Why Tesseract
 
 JumpGrad spans two computational worlds: a PyTorch neural controller and JAX-based stochastic mechanics. They also require different backward rules—the controller uses PyTorch autograd, while the mechanics uses common-random-number finite differences through hard switching. A single ordinary AD graph cannot supply the missing pathwise derivative across the sampled Markov events.
 
@@ -100,6 +84,22 @@ The mechanics block uses our [independent-batch extension to Tesseract Core](htt
 
 <p align="center">
   <img src="outputs/jumpgrad_visuals/gradient_story.png" width="640" alt="Direct AD, CRN finite-difference, and end-to-end controller gradients with optimization history">
+</p>
+
+## 4. Results
+
+JumpGrad produces a trainable end-to-end gradient through the discrete stochastic simulator and improves vibration suppression on both the benchmark and fresh random realizations.
+
+On the same numerical JAX-FEM/Jenkins benchmark, the reproduced Wu2019 control method reduces the sampled resonance peak by about 20.2% relative to passive friction. JumpGrad reaches **23.9%** reduction. Both peaks lie inside the sampled local-FRF window.
+
+<p align="center">
+  <img src="outputs/jumpgrad_visuals/main_results.png" width="680" alt="Local resonance response and peak reduction for Passive, Wu2019, and JumpGrad">
+</p>
+
+The frozen controller was evaluated on 128 unseen random realizations, each aggregated with equal weight across the same eight held-out operating conditions. Training improves the mean aggregate reduction from **2.99% → 21.11%**, and **128/128** realizations improve. Because the MLP receives forcing amplitude and frequency, it learns condition-dependent switching parameters rather than one fixed setting.
+
+<p align="center">
+  <img src="outputs/jumpgrad_visuals/held_out.png" width="680" alt="Initial and Trained JumpGrad aggregate reductions with paired fresh-seed improvements">
 </p>
 
 ## 5. Reproduce
