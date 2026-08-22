@@ -22,6 +22,9 @@ outputs/jumpgrad_visuals/*
 !outputs/jumpgrad_visuals/main_results.png
 !outputs/jumpgrad_visuals/gradient_story.png
 !outputs/jumpgrad_visuals/held_out.png
+!outputs/jumpgrad_generalization/
+outputs/jumpgrad_generalization/*
+!outputs/jumpgrad_generalization/results.json
 results/
 artifacts/
 checkpoints/
