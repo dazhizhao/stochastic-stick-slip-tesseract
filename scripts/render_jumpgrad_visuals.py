@@ -97,7 +97,10 @@ MESH_EDGE_COLOR = "#3B4650"
 WU_COLOR = "#5C8FBA"
 INITIAL_COLOR = "#AFC2D4"
 TRAINED_COLOR = "#1F7894"
-HERO_COLORMAP = mpl.colormaps["coolwarm"]
+HERO_COLORMAP = mpl.colors.LinearSegmentedColormap.from_list(
+    "jumpgrad_blues",
+    mpl.colormaps["Blues"](np.linspace(0.28, 0.95, 256)),
+)
 
 METHOD_LABELS = {
     "passive": "Passive",
@@ -351,7 +354,7 @@ def render_hero(replay: dict) -> None:
         3,
         left=0.018,
         right=0.982,
-        bottom=0.27,
+        bottom=0.245,
         top=0.91,
         wspace=0.025,
     )
@@ -366,7 +369,7 @@ def render_hero(replay: dict) -> None:
             axis, method, normalization, replay["axis_limits"]
         )
 
-    colorbar_axis = figure.add_axes([0.15, 0.160, 0.70, 0.050])
+    colorbar_axis = figure.add_axes([0.15, 0.180, 0.70, 0.050])
     colorbar = figure.colorbar(
         mpl.cm.ScalarMappable(norm=normalization, cmap=HERO_COLORMAP),
         cax=colorbar_axis,
