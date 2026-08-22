@@ -1,128 +1,126 @@
-# JumpGrad: End-to-End Gradient Optimization through Discrete Stochastic Mechanics
+<div align="center">
+
+# JumpGrad
+
+**End-to-End Gradient Optimization through Discrete Stochastic Mechanics**
+
+Differentiable optimization through hard stochastic switching with Tesseract.
+
+[Problem](#1-problem) · [Method](#2-method) · [Results](#3-results) · [Why it works](#4-why-it-works) · [Reproduce](#5-reproduce)
+
+</div>
 
 <p align="center">
   <img src="outputs/jumpgrad_visuals/passive_wu_jumpgrad.gif" width="760" alt="Passive, Wu2019, and JumpGrad beam vibration under the same operating condition">
 </p>
 
-JumpGrad is a [Tesseract Hackathon 2026](https://pasteurlabs.ai/tesseract-hackathon-2026/) **Track 03 — Hybrid ML + mechanistic models** entry. It performs end-to-end gradient optimization of a PyTorch controller through a JAX-based frictional mechanics solver whose hard random switching events make the sampled physics gradient invisible to ordinary automatic differentiation.
+## 1. Problem
 
-## 1. Overview
+We study vibration suppression in a finite-element beam with two friction contacts. A neural controller observes the forcing amplitude and frequency, then changes the transition probabilities of a hard Markov actuator whose preload is always `LOW` or `HIGH`.
 
-We study vibration suppression in a finite-element beam with two friction contacts. The controller cannot set a continuous friction force. It can only change the transition rates of a hard Markov actuator whose preload is always `LOW` or `HIGH`.
+These switching decisions are discrete stochastic events. For a fixed random tape, a small controller-parameter change may leave the entire sampled switching trajectory unchanged, so ordinary automatic differentiation cannot provide a useful mechanics gradient through the hard path.
 
-The forward mechanics retains the discrete switching events and Jenkins friction law. The backward pass combines a PyTorch autograd VJP for the neural controller with a common-random-number centered finite-difference VJP for the stochastic mechanics.
+JumpGrad addresses this gap: it trains a neural controller end to end through the original stochastic mechanics system without smoothing away the switching events.
 
-## 2. Why this is a Tesseract problem
+## 2. Method
 
-The workflow contains two peer software components, and each component is a Tesseract:
+JumpGrad is a [Tesseract Hackathon 2026](https://pasteurlabs.ai/tesseract-hackathon-2026/) **Track 03 — Hybrid ML + mechanistic models** entry. It combines a PyTorch neural controller, hard Markov switching, JAX-FEM mechanics, Jenkins friction, and custom gradient rules through Tesseract.
 
-- [`jumpgrad_controller`](tesseracts/jumpgrad_controller/tesseract_api.py) contains the condition-aware PyTorch MLP and uses `torch.autograd` for its VJP.
-- [`wu_v2_markov_fem`](tesseracts/wu_v2_markov_fem/tesseract_api.py) contains the hard Markov actuator, JAX-FEM beam dynamics, and Jenkins friction; its VJP uses common-random-number centered finite differences.
+```text
+Operating condition
+        ↓
+    PyTorch MLP
+        ↓
+switching parameters q
+        ↓
+hard LOW/HIGH Markov switching
+        ↓
+JAX-FEM + Jenkins friction
+        ↓
+vibration objective
+        ↓
+backward through Tesseract
+```
 
-| Boundary | Controller Tesseract | Mechanics Tesseract |
-|---|---|---|
-| Framework | PyTorch | JAX-based mechanics |
-| Derivative strategy | PyTorch autograd | CRN centered finite difference |
-| Physics | Smooth neural network | Hard stochastic switching and friction |
-
-The differentiable connection between the two blocks carries only the switching coefficients `q=[a2,b2]`; operating conditions and random tapes remain explicit ordinary inputs to the mechanics block. The backward interface returns the cotangent of `q`, allowing both derivative rules to participate in one end-to-end `loss.backward()` call. Tesseract is therefore the composition infrastructure, not a decorative wrapper inserted between the controller and mechanics.
-
-**Bonus — we [forked and modified Tesseract Core](https://github.com/dazhizhao/tesseract-core/commit/43fe09bd8ef1a96569e8499d022482d1ae4ce1de).** The mechanics block uses our independent-batch extension to Core's generic finite-difference VJP. For batched `q[B,2]`, it perturbs one coefficient across all independent conditions at once, reducing centered differences from `4B` mechanics evaluations to four while leaving the explicit `markov_tapes` unchanged in every `+eps`/`-eps` pair.
+The [`jumpgrad_controller`](tesseracts/jumpgrad_controller/tesseract_api.py) Tesseract maps operating conditions to `q=[a2,b2]`. The [`wu_v2_markov_fem`](tesseracts/wu_v2_markov_fem/tesseract_api.py) Tesseract converts `q` and explicit random tapes into hard preload histories, advances the beam response, and returns the vibration objective.
 
 <p align="center">
   <img src="outputs/jumpgrad_visuals/tesseract_pipeline.png" width="760" alt="Two peer Tesseract blocks composing a PyTorch controller with hard stochastic JAX-FEM mechanics">
 </p>
 
-## 3. From Wu2019 to hard switching
-
-We first reproduced the Wu2019 2ω friction-control method on the same JAX-FEM benchmark. Its smooth periodic preload modulation is a strong engineering baseline, reducing the sampled resonance peak by about 20.2% relative to passive friction.
-
-JumpGrad replaces smooth modulation with a genuinely discrete actuator. At every time step, each contact is commanded to one of two frozen preload levels; the learned coefficients change only the Markov transition rates.
-
-Wu2019 here means its control method reproduced on this numerical JAX-FEM/Jenkins benchmark, not the original experimental structure or solver.
-
-## 4. Why ordinary AD fails
-
-For a fixed random tape, a small change in `q` can leave every sampled `LOW`/`HIGH` decision unchanged. The resulting preload history and mechanical trajectory are then locally constant with respect to `q`. In the registered gradient audit, direct automatic differentiation through this real hard path returns a zero physics gradient.
-
-This is not a claim that automatic differentiation fails for every stochastic system. It is a measured property of this sampled hard-switching pipeline: the parameter sensitivity is carried by changes in discrete event history, not by a smooth pathwise dependence.
-
-## 5. Why finite differences and common random numbers
-
-Finite differences are a standard simulation-gradient option when analytic or pathwise derivatives are unavailable. Here the physics interface is only two-dimensional, so a centered difference remains affordable while preserving the original hard forward model:
-
-$$
-g_i =
-\frac{
-L(q + \varepsilon e_i;\,\xi) - L(q - \varepsilon e_i;\,\xi)
-}{
-2\varepsilon
-}.
-$$
-
-The `+eps` and `-eps` evaluations receive exactly the same explicit `markov_tapes`. This common-random-number coupling reduces contamination from unrelated Monte Carlo variation and isolates the effect of the policy perturbation. Randomness is therefore ordinary, reproducible input data at the Tesseract boundary; the project does not claim that Tesseract previously lacked CRN support.
-
-JAX-FEM remains valuable because it supplies the genuine finite-element structural solver and differentiable smooth mechanics. Its automatic differentiation cannot, by itself, recover sensitivity lost at the surrounding hard event map. The physics-side finite-difference VJP bridges that event boundary without softening the Markov decisions.
-
-<p align="center">
-  <img src="outputs/jumpgrad_visuals/gradient_story.png" width="640" alt="Direct AD, CRN finite-difference, and end-to-end controller gradients with optimization history">
-</p>
-
-## 6. End-to-end optimization
-
-The controller receives normalized excitation amplitude and frequency and outputs `q=[a2,b2]`. The mechanics Tesseract converts `q` and an explicit random tape into hard preload histories, advances the JAX-FEM/Jenkins response, and returns the vibration objective.
-
-During the backward pass, the mechanics Tesseract estimates the cotangent of `q` using two coefficients × centered finite differences. The controller Tesseract then propagates that cotangent to all 354 network parameters with PyTorch autograd. The nonzero end-to-end gradient drives a 100-update Adam training run whose fixed monitoring objective decreases by about 19.6%.
+During the backward pass, the mechanics block returns a CRN finite-difference cotangent of `q`; the controller block propagates it to all 354 MLP parameters with PyTorch autograd. A single `loss.backward()` call therefore drives the registered 100-update Adam training run.
 
 <p align="center">
   <img src="outputs/jumpgrad_visuals/optimization.gif" width="700" alt="Frozen JumpGrad optimization replay showing the fixed-monitor objective and tip response over 100 updates">
 </p>
 
-## 7. Results
+## 3. Results
 
-Wu2019 reduces the sampled resonance peak by about 20.2% relative to passive friction. JumpGrad reaches about 23.9% reduction, and its sampled peak is approximately 4.6% lower than the reproduced Wu2019 baseline. Both peaks lie inside the sampled local-FRF window.
+JumpGrad produces a trainable end-to-end gradient through the discrete stochastic simulator and improves vibration suppression on both the benchmark and fresh random realizations.
+
+On the same numerical JAX-FEM/Jenkins benchmark, the reproduced Wu2019 control method reduces the sampled resonance peak by about 20.2% relative to passive friction. JumpGrad reaches **23.9%** reduction, and its sampled peak is approximately 4.6% lower than the reproduced Wu2019 baseline. Both peaks lie inside the sampled local-FRF window.
 
 <p align="center">
   <img src="outputs/jumpgrad_visuals/main_results.png" width="680" alt="Local resonance response and peak reduction for Passive, Wu2019, and JumpGrad">
 </p>
 
-Across 128 fresh random realizations, training improves the aggregate mean reduction from 2.986% to 21.114%. Each realization is aggregated with equal weight across all eight held-out operating conditions. The corresponding mean paired gain is +18.128 percentage points, and all 128/128 realizations improve. The learned MLP also outputs different switching parameters for different operating conditions.
+The frozen controller was evaluated on 128 unseen random realizations, each aggregated with equal weight across the same eight held-out operating conditions. Training improves the mean aggregate reduction from **2.99% → 21.11%**, and **128/128** realizations improve. Because the MLP receives forcing amplitude and frequency, it learns condition-dependent switching parameters rather than one fixed setting.
 
 <p align="center">
   <img src="outputs/jumpgrad_visuals/held_out.png" width="680" alt="Initial and Trained JumpGrad aggregate reductions with paired fresh-seed improvements">
 </p>
 
-## 8. Reproduce
+## 4. Why it works
 
-Python 3.12 and [uv](https://docs.astral.sh/uv/) are required. The default command runs a compact end-to-end demo through both Tesseract blocks: it checks the three gradient routes and completes one Adam update without changing the frozen showcase results.
+### Hard switching breaks ordinary AD
+
+For a fixed random tape, a small change in `q` can leave every sampled `LOW`/`HIGH` decision unchanged. The preload history and mechanical trajectory are then locally constant with respect to `q`; in the registered gradient audit, direct automatic differentiation through this real hard path returns a zero physics gradient.
+
+### CRN finite differences
+
+The physics interface is only two-dimensional, so a centered finite difference remains affordable while preserving the original hard forward model:
+
+$$
+g_i =
+\frac{
+L(q + \varepsilon e_i;\xi) - L(q - \varepsilon e_i;\xi)
+}{
+2\varepsilon
+}.
+$$
+
+Each `+eps`/`-eps` pair receives the same explicit `markov_tapes`. This common-random-number coupling suppresses unrelated Monte Carlo variation and isolates the effect of the policy perturbation. JAX-FEM supplies the genuine differentiable structural solver, while the physics-side finite-difference VJP crosses the surrounding hard-event boundary without softening the Markov decisions.
+
+### Tesseract composition
+
+- Controller side: PyTorch autograd maps the cotangent of `q` to all neural-network parameters.
+- Mechanics side: CRN centered finite differences recover sensitivity through hard stochastic switching.
+
+Tesseract composes these two derivative rules into the same `loss.backward()` chain while keeping operating conditions and random tapes as explicit mechanics inputs.
+
+### Bonus — we forked and modified Tesseract Core
+
+The mechanics block uses our [independent-batch extension to Tesseract Core](https://github.com/dazhizhao/tesseract-core/commit/43fe09bd8ef1a96569e8499d022482d1ae4ce1de). For batched `q[B,2]`, it perturbs one coefficient across all independent conditions at once, reducing centered differences from `4B` mechanics evaluations to four while preserving same-tape CRN pairing.
+
+<p align="center">
+  <img src="outputs/jumpgrad_visuals/gradient_story.png" width="640" alt="Direct AD, CRN finite-difference, and end-to-end controller gradients with optimization history">
+</p>
+
+## 5. Reproduce
+
+Python 3.12 and [uv](https://docs.astral.sh/uv/) are required.
 
 ```bash
-git clone https://github.com/dazhizhao/stochastic-stick-slip-tesseract.git
-cd stochastic-stick-slip-tesseract
 uv sync
 uv run python scripts/run_jumpgrad_end_to_end.py
-```
-
-The complete registered 100-update experiment is available through the same entry point:
-
-```bash
-uv run python scripts/run_jumpgrad_end_to_end.py --train
-```
-
-Evaluate the frozen final controller on 128 fresh Markov realizations for each held-out condition:
-
-```bash
 uv run python scripts/run_jumpgrad_generalization.py
-```
-
-Rebuild only the fresh-seed held-out figure and the frozen Hero GIF with temporary plotting dependencies:
-
-```bash
 uv run --with matplotlib==3.11.1 --with pillow==12.3.0 \
   python scripts/render_jumpgrad_visuals.py
 ```
 
-## 9. References
+Add `--train` to `run_jumpgrad_end_to_end.py` to run the complete registered 100-update experiment instead of the quick two-Tesseract demo.
+
+## 6. References
 
 1. Y. G. Wu et al., “Design of semi-active dry friction dampers for steady-state vibration: sensitivity analysis and experimental studies,” *Journal of Sound and Vibration* 459, 114850 (2019). [doi:10.1016/j.jsv.2019.114850](https://doi.org/10.1016/j.jsv.2019.114850)
 2. D. Häfner and A. Lavin, “Tesseract Core: Universal, autodiff-native software components for Simulation Intelligence,” *Journal of Open Source Software* 10(111), 8385 (2025). [doi:10.21105/joss.08385](https://doi.org/10.21105/joss.08385)
