@@ -25,13 +25,13 @@ The workflow contains two peer software components, and each component is a Tess
 | Derivative strategy | PyTorch autograd | CRN centered finite difference |
 | Physics | Smooth neural network | Hard stochastic switching and friction |
 
-<p align="center">
-  <img src="outputs/jumpgrad_visuals/tesseract_pipeline.png" width="760" alt="Two peer Tesseract blocks composing a PyTorch controller with hard stochastic JAX-FEM mechanics">
-</p>
-
 The differentiable connection between the two blocks carries only the switching coefficients `q=[a2,b2]`; operating conditions and random tapes remain explicit ordinary inputs to the mechanics block. The backward interface returns the cotangent of `q`, allowing both derivative rules to participate in one end-to-end `loss.backward()` call. Tesseract is therefore the composition infrastructure, not a decorative wrapper inserted between the controller and mechanics.
 
 **Bonus — we [forked and modified Tesseract Core](https://github.com/dazhizhao/tesseract-core/commit/43fe09bd8ef1a96569e8499d022482d1ae4ce1de).** The mechanics block uses our independent-batch extension to Core's generic finite-difference VJP. For batched `q[B,2]`, it perturbs one coefficient across all independent conditions at once, reducing centered differences from `4B` mechanics evaluations to four while leaving the explicit `markov_tapes` unchanged in every `+eps`/`-eps` pair.
+
+<p align="center">
+  <img src="outputs/jumpgrad_visuals/tesseract_pipeline.png" width="760" alt="Two peer Tesseract blocks composing a PyTorch controller with hard stochastic JAX-FEM mechanics">
+</p>
 
 ## 3. From Wu2019 to hard switching
 
@@ -51,9 +51,14 @@ This is not a claim that automatic differentiation fails for every stochastic sy
 
 Finite differences are a standard simulation-gradient option when analytic or pathwise derivatives are unavailable. Here the physics interface is only two-dimensional, so a centered difference remains affordable while preserving the original hard forward model:
 
-```text
-g_i = [L(q + eps e_i; tape) - L(q - eps e_i; tape)] / (2 eps)
-```
+$$
+g_i =
+\frac{
+L(q + \varepsilon e_i;\,\xi) - L(q - \varepsilon e_i;\,\xi)
+}{
+2\varepsilon
+}.
+$$
 
 The `+eps` and `-eps` evaluations receive exactly the same explicit `markov_tapes`. This common-random-number coupling reduces contamination from unrelated Monte Carlo variation and isolates the effect of the policy perturbation. Randomness is therefore ordinary, reproducible input data at the Tesseract boundary; the project does not claim that Tesseract previously lacked CRN support.
 
@@ -75,17 +80,17 @@ During the backward pass, the mechanics Tesseract estimates the cotangent of `q`
 
 ## 7. Results
 
+Wu2019 reduces the sampled resonance peak by about 20.2% relative to passive friction. JumpGrad reaches about 23.9% reduction, and its sampled peak is approximately 4.6% lower than the reproduced Wu2019 baseline. Both peaks lie inside the sampled local-FRF window.
+
 <p align="center">
   <img src="outputs/jumpgrad_visuals/main_results.png" width="680" alt="Local resonance response and peak reduction for Passive, Wu2019, and JumpGrad">
 </p>
 
+Across 128 fresh random realizations, training improves the aggregate mean reduction from 2.986% to 21.114%. Each realization is aggregated with equal weight across all eight held-out operating conditions. The corresponding mean paired gain is +18.128 percentage points, and all 128/128 realizations improve. The learned MLP also outputs different switching parameters for different operating conditions.
+
 <p align="center">
   <img src="outputs/jumpgrad_visuals/held_out.png" width="680" alt="Initial and Trained JumpGrad aggregate reductions with paired fresh-seed improvements">
 </p>
-
-Wu2019 reduces the sampled resonance peak by about 20.2% relative to passive friction. JumpGrad reaches about 23.9% reduction, and its sampled peak is approximately 4.6% lower than the reproduced Wu2019 baseline. Both peaks lie inside the sampled local-FRF window.
-
-Across 128 fresh random realizations, training improves the aggregate mean reduction from 2.986% to 21.114%. The left panel compares the Initial and Trained JumpGrad distributions after averaging each realization equally across all eight held-out operating conditions. The right panel shows the corresponding paired improvements: the mean gain is +18.128 percentage points, and all 128/128 fresh realizations improve. The learned MLP also outputs different switching parameters for different operating conditions.
 
 ## 8. Reproduce
 
