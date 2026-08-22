@@ -1,13 +1,8 @@
-<table align="center">
-  <tr>
-    <td align="center" valign="middle" width="104">
-      <img src="assets/jumpgrad_logo.png" width="68" alt="JumpGrad logo">
-    </td>
-    <td align="center" valign="middle" width="820" nowrap>
-      <h1 align="center">JumpGrad: End-to-End Gradient Optimization<br>through Discrete Stochastic Mechanics</h1>
-    </td>
-  </tr>
-</table>
+<div align="center">
+  <img src="assets/jumpgrad_logo.png" width="90" align="left" hspace="55" alt="JumpGrad logo">
+  <h3 align="center">JumpGrad: End-to-End Gradient Optimization<br>through Discrete Stochastic Mechanics</h3>
+  <br clear="all">
+</div>
 
 <p align="center">
   <a href="https://pasteurlabs.ai/tesseract-hackathon-2026/">Tesseract Hackathon 2026</a> · <strong>Track 03 — Hybrid ML + Mechanistic Models</strong><br>
