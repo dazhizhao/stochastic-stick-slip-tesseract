@@ -508,7 +508,7 @@ def render_held_out(result: dict) -> tuple[float, float, float, int]:
     lower_axis.set_xticks(positions, ["Initial", "Trained\nJumpGrad"])
     upper_axis.text(
         0.94,
-        0.86,
+        0.93,
         f"Trained mean = {trained_mean:.2f}%",
         transform=upper_axis.transAxes,
         color=TRAINED_COLOR,
@@ -519,7 +519,7 @@ def render_held_out(result: dict) -> tuple[float, float, float, int]:
     )
     lower_axis.text(
         0.06,
-        0.88,
+        0.94,
         f"Initial mean = {initial_mean:.2f}%",
         transform=lower_axis.transAxes,
         color=FRAME_COLOR,
@@ -529,15 +529,16 @@ def render_held_out(result: dict) -> tuple[float, float, float, int]:
         va="top",
     )
     upper_axis.text(
-        0.02,
-        0.90,
+        -0.075,
+        1.06,
         "a",
         transform=upper_axis.transAxes,
         color=FRAME_COLOR,
         fontsize=13.0,
         fontweight="bold",
         ha="left",
-        va="top",
+        va="bottom",
+        clip_on=False,
     )
 
     break_size = 0.014
@@ -580,13 +581,6 @@ def render_held_out(result: dict) -> tuple[float, float, float, int]:
         edgecolor="white",
         linewidth=0.9,
     )
-    histogram_axis.axvline(
-        improvement_mean,
-        color=TRAINED_COLOR,
-        linestyle="-",
-        linewidth=2.0,
-        ymax=0.82,
-    )
     improvement_min = float(np.min(improvement))
     improvement_max = float(np.max(improvement))
     improvement_span = improvement_max - improvement_min
@@ -598,27 +592,16 @@ def render_held_out(result: dict) -> tuple[float, float, float, int]:
     histogram_axis.set_xlabel("Improvement in aggregate reduction (pts)")
     histogram_axis.set_ylabel("Fresh realizations")
     histogram_axis.text(
-        0.96,
-        0.95,
-        f"Mean improvement = +{improvement_mean:.2f} pts\n"
-        f"{improved_count}/128 improved",
-        transform=histogram_axis.transAxes,
-        color=FRAME_COLOR,
-        fontsize=10.5,
-        fontweight="bold",
-        ha="right",
-        va="top",
-    )
-    histogram_axis.text(
-        0.02,
-        0.95,
+        -0.075,
+        1.06,
         "b",
         transform=histogram_axis.transAxes,
         color=FRAME_COLOR,
         fontsize=13.0,
         fontweight="bold",
         ha="left",
-        va="top",
+        va="bottom",
+        clip_on=False,
     )
     _style_axis(histogram_axis)
 
