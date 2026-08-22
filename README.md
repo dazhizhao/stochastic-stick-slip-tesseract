@@ -1,8 +1,7 @@
-<p align="center">
-  <img src="assets/jumpgrad_logo.png" width="140" alt="JumpGrad logo">
-</p>
-
-<h1 align="center">JumpGrad: End-to-End Gradient Optimization through Discrete Stochastic Mechanics</h1>
+<h1 align="center">
+  <img src="assets/jumpgrad_logo.png" width="88" alt="JumpGrad logo" align="middle">&nbsp;&nbsp;JumpGrad: End-to-End Gradient Optimization through<br>
+  Discrete Stochastic Mechanics
+</h1>
 
 <p align="center">
   <a href="#1-problem">Problem</a> · <a href="#2-method">Method</a> · <a href="#3-why-tesseract">Why Tesseract</a> · <a href="#4-results">Results</a> · <a href="#5-reproduce">Reproduce</a>
