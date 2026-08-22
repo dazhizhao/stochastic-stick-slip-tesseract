@@ -432,98 +432,147 @@ def render_held_out(result: dict) -> tuple[float, float, float, int]:
     improvement_mean = float(np.mean(improvement))
     improved_count = int(np.count_nonzero(improvement > 0.0))
 
-    figure, axes = plt.subplots(
-        1,
+    figure = plt.figure(figsize=(8.6, 3.35))
+    grid = figure.add_gridspec(
         2,
-        figsize=(9.2, 3.55),
-        gridspec_kw={"width_ratios": (1.0, 1.25)},
+        2,
+        width_ratios=(1.0, 1.25),
+        height_ratios=(0.82, 1.18),
+        hspace=0.075,
+        wspace=0.32,
     )
-
+    upper_axis = figure.add_subplot(grid[0, 0])
+    lower_axis = figure.add_subplot(grid[1, 0], sharex=upper_axis)
+    histogram_axis = figure.add_subplot(grid[:, 1])
     positions = np.asarray([0.0, 1.0])
-    violin = axes[0].violinplot(
-        [initial_aggregate, trained_aggregate],
-        positions=positions,
-        widths=0.70,
-        showmeans=False,
-        showmedians=False,
-        showextrema=False,
+    distributions = (initial_aggregate, trained_aggregate)
+    distribution_colors = (INITIAL_COLOR, TRAINED_COLOR)
+    distribution_means = (initial_mean, trained_mean)
+    for axis in (upper_axis, lower_axis):
+        violin = axis.violinplot(
+            distributions,
+            positions=positions,
+            widths=0.70,
+            showmeans=False,
+            showmedians=False,
+            showextrema=False,
+        )
+        for body, color in zip(
+            violin["bodies"], distribution_colors, strict=True
+        ):
+            body.set_facecolor(color)
+            body.set_edgecolor(color)
+            body.set_alpha(0.38)
+            body.set_linewidth(1.35)
+        boxes = axis.boxplot(
+            distributions,
+            positions=positions,
+            widths=0.18,
+            showfliers=False,
+            patch_artist=True,
+            medianprops={"color": FRAME_COLOR, "linewidth": 1.8},
+            whiskerprops={"color": FRAME_COLOR, "linewidth": 1.1},
+            capprops={"color": FRAME_COLOR, "linewidth": 1.1},
+            boxprops={"edgecolor": FRAME_COLOR, "linewidth": 1.1},
+        )
+        for box, color in zip(
+            boxes["boxes"], distribution_colors, strict=True
+        ):
+            box.set_facecolor(color)
+            box.set_alpha(0.78)
+        axis.scatter(
+            positions,
+            distribution_means,
+            marker="o",
+            color=distribution_colors,
+            edgecolor="white",
+            linewidth=1.1,
+            s=62,
+            zorder=4,
+        )
+        _style_axis(axis)
+
+    initial_span = float(np.ptp(initial_aggregate))
+    trained_span = float(np.ptp(trained_aggregate))
+    lower_axis.set_ylim(
+        float(np.min(initial_aggregate)) - 0.12 * initial_span,
+        float(np.max(initial_aggregate)) + 0.24 * initial_span,
     )
-    for body, color in zip(
-        violin["bodies"], (INITIAL_COLOR, TRAINED_COLOR), strict=True
-    ):
-        body.set_facecolor(color)
-        body.set_edgecolor(color)
-        body.set_alpha(0.38)
-        body.set_linewidth(1.35)
-    boxes = axes[0].boxplot(
-        [initial_aggregate, trained_aggregate],
-        positions=positions,
-        widths=0.18,
-        showfliers=False,
-        patch_artist=True,
-        medianprops={"color": FRAME_COLOR, "linewidth": 1.8},
-        whiskerprops={"color": FRAME_COLOR, "linewidth": 1.1},
-        capprops={"color": FRAME_COLOR, "linewidth": 1.1},
-        boxprops={"edgecolor": FRAME_COLOR, "linewidth": 1.1},
+    upper_axis.set_ylim(
+        float(np.min(trained_aggregate)) - 0.25 * trained_span,
+        float(np.max(trained_aggregate)) + 0.42 * trained_span,
     )
-    for box, color in zip(
-        boxes["boxes"], (INITIAL_COLOR, TRAINED_COLOR), strict=True
-    ):
-        box.set_facecolor(color)
-        box.set_alpha(0.78)
-    axes[0].scatter(
-        positions,
-        [initial_mean, trained_mean],
-        marker="o",
-        color=(INITIAL_COLOR, TRAINED_COLOR),
-        edgecolor="white",
-        linewidth=1.1,
-        s=62,
-        zorder=4,
-    )
-    data_min = float(min(np.min(initial_aggregate), np.min(trained_aggregate)))
-    data_max = float(max(np.max(initial_aggregate), np.max(trained_aggregate)))
-    data_span = data_max - data_min
-    padding = 0.08 * data_span
-    axes[0].set_ylim(data_min - padding, data_max + padding)
-    label_y = data_max + 0.035 * data_span
-    axes[0].text(
-        0.0,
-        label_y,
-        f"Initial mean = {initial_mean:.2f}%",
-        color=FRAME_COLOR,
-        fontsize=10.5,
-        fontweight="bold",
-        ha="center",
-        va="bottom",
-    )
-    axes[0].text(
-        1.0,
-        label_y,
+    upper_axis.spines["bottom"].set_visible(False)
+    lower_axis.spines["top"].set_visible(False)
+    upper_axis.tick_params(axis="x", bottom=False, labelbottom=False)
+    lower_axis.set_xticks(positions, ["Initial", "Trained\nJumpGrad"])
+    upper_axis.text(
+        0.94,
+        0.86,
         f"Trained mean = {trained_mean:.2f}%",
+        transform=upper_axis.transAxes,
         color=TRAINED_COLOR,
         fontsize=10.5,
         fontweight="bold",
-        ha="center",
-        va="bottom",
+        ha="right",
+        va="top",
     )
-    axes[0].set_xticks(positions, ["Initial", "Trained\nJumpGrad"])
-    axes[0].set_ylabel("Aggregate reduction vs passive (%)")
-    axes[0].text(
+    lower_axis.text(
+        0.06,
+        0.88,
+        f"Initial mean = {initial_mean:.2f}%",
+        transform=lower_axis.transAxes,
+        color=FRAME_COLOR,
+        fontsize=10.5,
+        fontweight="bold",
+        ha="left",
+        va="top",
+    )
+    upper_axis.text(
         0.02,
-        0.96,
+        0.90,
         "a",
-        transform=axes[0].transAxes,
+        transform=upper_axis.transAxes,
         color=FRAME_COLOR,
         fontsize=13.0,
         fontweight="bold",
         ha="left",
         va="top",
     )
-    _style_axis(axes[0])
+
+    break_size = 0.014
+    break_style = {
+        "color": FRAME_COLOR,
+        "clip_on": False,
+        "linewidth": 1.15,
+    }
+    upper_axis.plot(
+        (-break_size, break_size),
+        (-break_size, break_size),
+        transform=upper_axis.transAxes,
+        **break_style,
+    )
+    upper_axis.plot(
+        (1.0 - break_size, 1.0 + break_size),
+        (-break_size, break_size),
+        transform=upper_axis.transAxes,
+        **break_style,
+    )
+    lower_axis.plot(
+        (-break_size, break_size),
+        (1.0 - break_size, 1.0 + break_size),
+        transform=lower_axis.transAxes,
+        **break_style,
+    )
+    lower_axis.plot(
+        (1.0 - break_size, 1.0 + break_size),
+        (1.0 - break_size, 1.0 + break_size),
+        transform=lower_axis.transAxes,
+        **break_style,
+    )
 
     bin_edges = np.histogram_bin_edges(improvement, bins="fd")
-    axes[1].hist(
+    counts, _, _ = histogram_axis.hist(
         improvement,
         bins=bin_edges,
         color=TRAINED_COLOR,
@@ -531,52 +580,59 @@ def render_held_out(result: dict) -> tuple[float, float, float, int]:
         edgecolor="white",
         linewidth=0.9,
     )
-    axes[1].axvline(
-        0.0,
-        color="#9AA4AC",
-        linestyle="--",
-        linewidth=1.7,
-        label="No improvement",
-    )
-    axes[1].axvline(
+    histogram_axis.axvline(
         improvement_mean,
         color=TRAINED_COLOR,
         linestyle="-",
         linewidth=2.0,
-        label="Mean improvement",
+        ymax=0.82,
     )
-    x_min = min(0.0, float(np.min(improvement)))
-    x_max = float(np.max(improvement))
-    x_padding = 0.04 * (x_max - x_min)
-    axes[1].set_xlim(x_min - x_padding, x_max + x_padding)
-    axes[1].set_xlabel("Improvement in aggregate reduction (pts)")
-    axes[1].set_ylabel("Fresh realizations")
-    axes[1].text(
-        0.97,
-        0.94,
+    improvement_min = float(np.min(improvement))
+    improvement_max = float(np.max(improvement))
+    improvement_span = improvement_max - improvement_min
+    histogram_axis.set_xlim(
+        improvement_min - 0.06 * improvement_span,
+        improvement_max + 0.06 * improvement_span,
+    )
+    histogram_axis.set_ylim(0.0, float(np.max(counts)) * 1.18)
+    histogram_axis.set_xlabel("Improvement in aggregate reduction (pts)")
+    histogram_axis.set_ylabel("Fresh realizations")
+    histogram_axis.text(
+        0.96,
+        0.95,
         f"Mean improvement = +{improvement_mean:.2f} pts\n"
         f"{improved_count}/128 improved",
-        transform=axes[1].transAxes,
+        transform=histogram_axis.transAxes,
         color=FRAME_COLOR,
         fontsize=10.5,
         fontweight="bold",
         ha="right",
         va="top",
     )
-    axes[1].text(
+    histogram_axis.text(
         0.02,
-        0.96,
+        0.95,
         "b",
-        transform=axes[1].transAxes,
+        transform=histogram_axis.transAxes,
         color=FRAME_COLOR,
         fontsize=13.0,
         fontweight="bold",
         ha="left",
         va="top",
     )
-    _style_axis(axes[1])
+    _style_axis(histogram_axis)
 
-    figure.tight_layout(w_pad=2.2)
+    figure.subplots_adjust(left=0.12, right=0.985, bottom=0.19, top=0.97)
+    figure.text(
+        0.025,
+        0.58,
+        "Aggregate reduction vs passive (%)",
+        color=FRAME_COLOR,
+        fontsize=14.0,
+        rotation=90,
+        ha="center",
+        va="center",
+    )
     figure.savefig(
         HELD_OUT_PATH,
         dpi=300,
