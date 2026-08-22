@@ -172,6 +172,9 @@ def test_pipeline_only_cli_skips_scientific_replay(tmp_path: Path, monkeypatch):
 
 def test_readme_is_tesseract_first_without_numbered_captions():
     readme = (visuals.ROOT / "README.md").read_text()
+    visual_paths = [
+        f"outputs/jumpgrad_visuals/{path.name}" for path in visuals.EXPECTED_OUTPUTS
+    ]
     required = (
         "Track 03 — Hybrid ML + mechanistic models",
         "jumpgrad_controller",
@@ -197,3 +200,10 @@ def test_readme_is_tesseract_first_without_numbered_captions():
     assert "Figure 3" not in readme
     assert "Figure 4" not in readme
     assert "wu_vs_jumpgrad_control.gif" not in readme
+    assert all(readme.count(path) == 1 for path in visual_paths)
+    quick_commands = (
+        "git clone https://github.com/dazhizhao/stochastic-stick-slip-tesseract.git",
+        "cd stochastic-stick-slip-tesseract",
+        "uv run python scripts/reproduce.py",
+    )
+    assert all(command in readme for command in quick_commands)
