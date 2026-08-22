@@ -95,6 +95,7 @@ if not HELD_OUT_ONLY_REQUESTED:
 FRAME_COLOR = "#28323A"
 MESH_EDGE_COLOR = "#3B4650"
 WU_COLOR = "#5C8FBA"
+INITIAL_COLOR = "#AFC2D4"
 TRAINED_COLOR = "#1F7894"
 PLASMA = mpl.colormaps["plasma"]
 
@@ -401,121 +402,181 @@ def render_hero(replay: dict) -> None:
     plt.close(figure)
 
 
-def render_held_out(result: dict) -> tuple[float, int]:
+def render_held_out(result: dict) -> tuple[float, float, float, int]:
     _configure_plotting()
-    trained_normalized = np.asarray(
-        result["normalized_responses"]["trained"], dtype=np.float64
+    initial_aggregate = np.asarray(
+        result["aggregate_reduction_percent"]["initial"], dtype=np.float64
     )
-    trained_reduction = 100.0 * (1.0 - trained_normalized)
-    trained_aggregate = np.mean(trained_reduction, axis=0)
-    wu = np.asarray(
-        result["references"]["wu2019_reduction_percent"], dtype=np.float64
-    )
-    stored_aggregate = np.asarray(
+    trained_aggregate = np.asarray(
         result["aggregate_reduction_percent"]["trained"], dtype=np.float64
     )
+    stored_improvement = np.asarray(
+        result["paired_trained_minus_initial_percent"]["values"],
+        dtype=np.float64,
+    )
+    improvement = trained_aggregate - initial_aggregate
     if (
-        trained_reduction.shape != (8, 128)
-        or wu.shape != (8,)
-        or stored_aggregate.shape != (128,)
-        or not np.all(np.isfinite(trained_reduction))
-        or not np.all(np.isfinite(wu))
+        initial_aggregate.shape != (128,)
+        or trained_aggregate.shape != (128,)
+        or stored_improvement.shape != (128,)
+        or not np.all(np.isfinite(initial_aggregate))
+        or not np.all(np.isfinite(trained_aggregate))
+        or not np.all(np.isfinite(stored_improvement))
         or not np.allclose(
-            trained_aggregate, stored_aggregate, rtol=1e-12, atol=1e-12
+            improvement, stored_improvement, rtol=1e-12, atol=1e-12
         )
     ):
         raise RuntimeError("held-out plotting data contract changed")
-    wu_aggregate = float(np.mean(wu))
-    above_wu_count = int(np.count_nonzero(trained_aggregate > wu_aggregate))
-    aggregate_mean = float(np.mean(trained_aggregate))
+    initial_mean = float(np.mean(initial_aggregate))
+    trained_mean = float(np.mean(trained_aggregate))
+    improvement_mean = float(np.mean(improvement))
+    improved_count = int(np.count_nonzero(improvement > 0.0))
 
-    figure, axis = plt.subplots(figsize=(8.6, 2.65))
-    violin = axis.violinplot(
-        [trained_aggregate],
-        positions=[0.0],
-        widths=0.62,
+    figure, axes = plt.subplots(
+        1,
+        2,
+        figsize=(9.2, 3.55),
+        gridspec_kw={"width_ratios": (1.0, 1.25)},
+    )
+
+    positions = np.asarray([0.0, 1.0])
+    violin = axes[0].violinplot(
+        [initial_aggregate, trained_aggregate],
+        positions=positions,
+        widths=0.70,
         showmeans=False,
         showmedians=False,
         showextrema=False,
-        orientation="horizontal",
     )
-    for body in violin["bodies"]:
-        body.set_facecolor(TRAINED_COLOR)
-        body.set_edgecolor(TRAINED_COLOR)
+    for body, color in zip(
+        violin["bodies"], (INITIAL_COLOR, TRAINED_COLOR), strict=True
+    ):
+        body.set_facecolor(color)
+        body.set_edgecolor(color)
         body.set_alpha(0.38)
         body.set_linewidth(1.35)
-    boxes = axis.boxplot(
-        [trained_aggregate],
-        positions=[0.0],
-        widths=0.17,
+    boxes = axes[0].boxplot(
+        [initial_aggregate, trained_aggregate],
+        positions=positions,
+        widths=0.18,
         showfliers=False,
         patch_artist=True,
-        orientation="horizontal",
         medianprops={"color": FRAME_COLOR, "linewidth": 1.8},
         whiskerprops={"color": FRAME_COLOR, "linewidth": 1.1},
         capprops={"color": FRAME_COLOR, "linewidth": 1.1},
         boxprops={"edgecolor": FRAME_COLOR, "linewidth": 1.1},
     )
-    for box in boxes["boxes"]:
-        box.set_facecolor(TRAINED_COLOR)
-        box.set_alpha(0.72)
-    axis.scatter(
-        [aggregate_mean],
-        [0.0],
+    for box, color in zip(
+        boxes["boxes"], (INITIAL_COLOR, TRAINED_COLOR), strict=True
+    ):
+        box.set_facecolor(color)
+        box.set_alpha(0.78)
+    axes[0].scatter(
+        positions,
+        [initial_mean, trained_mean],
         marker="o",
-        color=TRAINED_COLOR,
+        color=(INITIAL_COLOR, TRAINED_COLOR),
         edgecolor="white",
         linewidth=1.1,
-        s=70,
+        s=62,
         zorder=4,
     )
-    axis.axvline(
-        wu_aggregate,
-        color=WU_COLOR,
-        linestyle="--",
-        linewidth=1.9,
-        zorder=1,
-    )
-    axis.text(
-        wu_aggregate + 0.08,
-        0.34,
-        f"Wu2019 = {wu_aggregate:.1f}%",
-        color=WU_COLOR,
-        fontsize=11.0,
-        fontweight="bold",
-        ha="left",
-        va="center",
-    )
-    axis.text(
-        aggregate_mean,
-        0.20,
-        f"Mean = {aggregate_mean:.2f}%",
-        color=TRAINED_COLOR,
-        fontsize=11.0,
+    data_min = float(min(np.min(initial_aggregate), np.min(trained_aggregate)))
+    data_max = float(max(np.max(initial_aggregate), np.max(trained_aggregate)))
+    data_span = data_max - data_min
+    padding = 0.08 * data_span
+    axes[0].set_ylim(data_min - padding, data_max + padding)
+    label_y = data_max + 0.035 * data_span
+    axes[0].text(
+        0.0,
+        label_y,
+        f"Initial mean = {initial_mean:.2f}%",
+        color=FRAME_COLOR,
+        fontsize=10.5,
         fontweight="bold",
         ha="center",
         va="bottom",
     )
-    axis.text(
-        0.975,
-        0.90,
-        f"{above_wu_count}/128 above Wu2019",
-        transform=axis.transAxes,
+    axes[0].text(
+        1.0,
+        label_y,
+        f"Trained mean = {trained_mean:.2f}%",
+        color=TRAINED_COLOR,
+        fontsize=10.5,
+        fontweight="bold",
+        ha="center",
+        va="bottom",
+    )
+    axes[0].set_xticks(positions, ["Initial", "Trained\nJumpGrad"])
+    axes[0].set_ylabel("Aggregate reduction vs passive (%)")
+    axes[0].text(
+        0.02,
+        0.96,
+        "a",
+        transform=axes[0].transAxes,
         color=FRAME_COLOR,
-        fontsize=11.5,
+        fontsize=13.0,
+        fontweight="bold",
+        ha="left",
+        va="top",
+    )
+    _style_axis(axes[0])
+
+    bin_edges = np.histogram_bin_edges(improvement, bins="fd")
+    axes[1].hist(
+        improvement,
+        bins=bin_edges,
+        color=TRAINED_COLOR,
+        alpha=0.72,
+        edgecolor="white",
+        linewidth=0.9,
+    )
+    axes[1].axvline(
+        0.0,
+        color="#9AA4AC",
+        linestyle="--",
+        linewidth=1.7,
+        label="No improvement",
+    )
+    axes[1].axvline(
+        improvement_mean,
+        color=TRAINED_COLOR,
+        linestyle="-",
+        linewidth=2.0,
+        label="Mean improvement",
+    )
+    x_min = min(0.0, float(np.min(improvement)))
+    x_max = float(np.max(improvement))
+    x_padding = 0.04 * (x_max - x_min)
+    axes[1].set_xlim(x_min - x_padding, x_max + x_padding)
+    axes[1].set_xlabel("Improvement in aggregate reduction (pts)")
+    axes[1].set_ylabel("Fresh realizations")
+    axes[1].text(
+        0.97,
+        0.94,
+        f"Mean improvement = +{improvement_mean:.2f} pts\n"
+        f"{improved_count}/128 improved",
+        transform=axes[1].transAxes,
+        color=FRAME_COLOR,
+        fontsize=10.5,
         fontweight="bold",
         ha="right",
         va="top",
     )
-    lower = min(wu_aggregate, float(np.min(trained_aggregate))) - 0.45
-    upper = max(wu_aggregate, float(np.max(trained_aggregate))) + 0.45
-    axis.set_xlim(lower, upper)
-    axis.set_ylim(-0.53, 0.53)
-    axis.set_yticks([0.0], ["JumpGrad\nfresh seeds"])
-    axis.set_xlabel("Aggregate reduction vs passive (%)")
-    _style_axis(axis)
+    axes[1].text(
+        0.02,
+        0.96,
+        "b",
+        transform=axes[1].transAxes,
+        color=FRAME_COLOR,
+        fontsize=13.0,
+        fontweight="bold",
+        ha="left",
+        va="top",
+    )
+    _style_axis(axes[1])
 
-    figure.tight_layout()
+    figure.tight_layout(w_pad=2.2)
     figure.savefig(
         HELD_OUT_PATH,
         dpi=300,
@@ -523,7 +584,7 @@ def render_held_out(result: dict) -> tuple[float, int]:
         facecolor="white",
     )
     plt.close(figure)
-    return wu_aggregate, above_wu_count
+    return initial_mean, trained_mean, improvement_mean, improved_count
 
 
 def validate_outputs(*, validate_hero: bool = True) -> None:
@@ -551,22 +612,30 @@ def main() -> None:
     OUTPUT_DIRECTORY.mkdir(parents=True, exist_ok=True)
     result = load_generalization()
     if arguments.held_out_only:
-        wu_aggregate, above_wu_count = render_held_out(result)
+        initial_mean, trained_mean, improvement_mean, improved_count = (
+            render_held_out(result)
+        )
         validate_outputs(validate_hero=False)
-        print(f"wu2019_aggregate_reduction_percent={wu_aggregate:.12g}")
-        print(f"above_wu2019={above_wu_count}/128")
+        print(f"initial_mean_reduction_percent={initial_mean:.12g}")
+        print(f"trained_mean_reduction_percent={trained_mean:.12g}")
+        print(f"mean_paired_improvement_points={improvement_mean:.12g}")
+        print(f"improved={improved_count}/128")
         print(f"output={HELD_OUT_PATH.relative_to(ROOT)}")
         return
     replay = replay_hero(result)
     render_hero(replay)
-    wu_aggregate, above_wu_count = render_held_out(result)
+    initial_mean, trained_mean, improvement_mean, improved_count = (
+        render_held_out(result)
+    )
     validate_outputs()
     print(
         f"hero_frames={NUM_GIF_FRAMES} deformation_scale="
         f"{replay['deformation_scale']:.12g}"
     )
-    print(f"wu2019_aggregate_reduction_percent={wu_aggregate:.12g}")
-    print(f"above_wu2019={above_wu_count}/128")
+    print(f"initial_mean_reduction_percent={initial_mean:.12g}")
+    print(f"trained_mean_reduction_percent={trained_mean:.12g}")
+    print(f"mean_paired_improvement_points={improvement_mean:.12g}")
+    print(f"improved={improved_count}/128")
     print(f"outputs={HERO_PATH.relative_to(ROOT)},{HELD_OUT_PATH.relative_to(ROOT)}")
 
 

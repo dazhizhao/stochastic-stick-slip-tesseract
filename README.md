@@ -80,12 +80,12 @@ During the backward pass, the mechanics Tesseract estimates the cotangent of `q`
 </p>
 
 <p align="center">
-  <img src="outputs/jumpgrad_visuals/held_out.png" width="680" alt="JumpGrad fresh-seed aggregate generalization distribution compared with the deterministic Wu2019 aggregate reference">
+  <img src="outputs/jumpgrad_visuals/held_out.png" width="680" alt="Initial and Trained JumpGrad aggregate reductions with paired fresh-seed improvements">
 </p>
 
 Wu2019 reduces the sampled resonance peak by about 20.2% relative to passive friction. JumpGrad reaches about 23.9% reduction, and its sampled peak is approximately 4.6% lower than the reproduced Wu2019 baseline. Both peaks lie inside the sampled local-FRF window.
 
-Across 128 fresh random realizations, training improves the aggregate mean reduction from 2.986% to 21.114%. Each score in the fresh-seed generalization plot averages one unseen random realization equally across all eight held-out operating conditions. The frozen JumpGrad controller exceeds the deterministic Wu2019 aggregate reference of 15.891% for all 128 scores. The learned MLP also outputs different switching parameters for different operating conditions.
+Across 128 fresh random realizations, training improves the aggregate mean reduction from 2.986% to 21.114%. The left panel compares the Initial and Trained JumpGrad distributions after averaging each realization equally across all eight held-out operating conditions. The right panel shows the corresponding paired improvements: the mean gain is +18.128 percentage points, and all 128/128 fresh realizations improve. The learned MLP also outputs different switching parameters for different operating conditions.
 
 ## 8. Reproduce
 
