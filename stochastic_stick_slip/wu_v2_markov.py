@@ -88,6 +88,7 @@ def markov_uniform_bank(
     num_realizations: int = NUM_REALIZATIONS,
     stream_id: int = 0,
     iteration: int = 0,
+    num_contacts: int = 2,
 ) -> np.ndarray:
     """Return deterministic [condition, realization, time+1, contact] tapes."""
     def seed_entropy(condition: int, realization: int, contact: int):
@@ -109,7 +110,7 @@ def markov_uniform_bank(
                                     )
                                 )
                             ).uniform(0.0, 1.0, size=NUM_STEPS + 1)
-                            for contact in range(2)
+                            for contact in range(num_contacts)
                         ],
                         axis=-1,
                     )

@@ -43,6 +43,7 @@ if not HELD_OUT_ONLY_REQUESTED:
         BEAM_HEIGHT,
         BEAM_LENGTH,
         STEPS_PER_PERIOD,
+        _assemble_system,
         build_variable_time_step_mechanics_batch_simulator,
     )
     from stochastic_stick_slip.wu_v2 import (
@@ -50,11 +51,12 @@ if not HELD_OUT_ONLY_REQUESTED:
         DIAGNOSTIC_NUM_PERIODS,
         FORCING_AMPLITUDE,
         REFERENCE_PRELOAD,
-        SYSTEM,
         single_tone_forcing,
     )
     from stochastic_stick_slip.wu_v2_markov import (
         NUM_STEPS,
+        PRELOAD_HIGH,
+        PRELOAD_LOW,
         generate_hard_preload_history,
         markov_uniform_bank,
     )
@@ -76,6 +78,12 @@ EXPECTED_OUTPUTS = (
 SELECTED_CONDITION_INDEX = 5
 SELECTED_STREAM = 12
 SELECTED_REALIZATION = 0
+HERO_NUM_REALIZATIONS = 16
+HERO_CONTACT_COLUMNS = (16, 21, 25, 30)
+HERO_CONTACT_NODES = (80, 105, 125, 150)
+HERO_OPTIMIZED_Q = np.asarray(
+    [-5.548885147350078, -1.6692728220424704], dtype=np.float64
+)
 FRAME_STRIDE = 4
 NUM_GIF_FRAMES = 100
 GIF_FPS = 20
@@ -94,12 +102,19 @@ if not HELD_OUT_ONLY_REQUESTED:
 
 FRAME_COLOR = "#28323A"
 MESH_EDGE_COLOR = "#3B4650"
+PASSIVE_PAD_COLOR = "#8A939B"
+LOW_PAD_COLOR = "#13B8A6"
+MID_PAD_COLOR = "#E7ECEF"
+HIGH_PAD_COLOR = "#F59E0B"
 WU_COLOR = "#5C8FBA"
 INITIAL_COLOR = "#AFC2D4"
 TRAINED_COLOR = "#1F7894"
 HERO_COLORMAP = mpl.colors.LinearSegmentedColormap.from_list(
     "jumpgrad_blues",
     mpl.colormaps["Blues"](np.linspace(0.28, 0.95, 256)),
+)
+PAD_CONTINUOUS_COLORMAP = mpl.colors.LinearSegmentedColormap.from_list(
+    "preload_state", (LOW_PAD_COLOR, MID_PAD_COLOR, HIGH_PAD_COLOR)
 )
 
 METHOD_LABELS = {
@@ -109,8 +124,13 @@ METHOD_LABELS = {
 }
 
 if not HELD_OUT_ONLY_REQUESTED:
-    FULL_MECHANICS = build_variable_time_step_mechanics_batch_simulator(
-        SYSTEM, return_full_displacement=True
+    HERO_SYSTEM = _assemble_system(
+        num_elements_x=32,
+        num_elements_y=4,
+        contact_columns=HERO_CONTACT_COLUMNS,
+    )
+    HERO_MECHANICS = build_variable_time_step_mechanics_batch_simulator(
+        HERO_SYSTEM, return_full_displacement=True
     )
 
 
@@ -191,16 +211,19 @@ def controller_q(theta: np.ndarray, condition: np.ndarray) -> np.ndarray:
 
 def _full_nodal_field(free_field: np.ndarray) -> np.ndarray:
     full = np.zeros(
-        free_field.shape[:-1] + (SYSTEM.num_total_dofs,), dtype=np.float64
+        free_field.shape[:-1] + (HERO_SYSTEM.num_total_dofs,),
+        dtype=np.float64,
     )
-    full[..., SYSTEM.free_dofs] = free_field
-    return full.reshape(free_field.shape[:-1] + (len(SYSTEM.points), 2))
+    full[..., HERO_SYSTEM.free_dofs] = free_field
+    return full.reshape(
+        free_field.shape[:-1] + (len(HERO_SYSTEM.points), 2)
+    )
 
 
 def simulate_full_field(
     forcing: np.ndarray, preload: np.ndarray, time_step: float
 ) -> dict[str, np.ndarray]:
-    outputs = FULL_MECHANICS(
+    outputs = HERO_MECHANICS(
         jnp.asarray(DAMPING, dtype=jnp.float64),
         jnp.asarray(forcing[None, :], dtype=jnp.float64),
         jnp.asarray(preload[None, :, :], dtype=jnp.float64),
@@ -208,7 +231,9 @@ def simulate_full_field(
     )
     tip = np.asarray(outputs[0][0])
     free_field = np.asarray(outputs[5][0])
-    observed = free_field @ np.asarray(SYSTEM.observation)
+    if not np.all(np.isfinite(tip)) or not np.all(np.isfinite(free_field)):
+        raise FloatingPointError("four-contact full-field replay is not finite")
+    observed = free_field @ np.asarray(HERO_SYSTEM.observation)
     if not np.allclose(observed, tip, rtol=1e-10, atol=1e-12):
         raise AssertionError("full-field replay disagrees with scalar mechanics")
     return {"tip": tip, "field": _full_nodal_field(free_field)}
@@ -219,7 +244,31 @@ def replay_hero(generalization: dict) -> dict:
     theta = np.asarray(
         generalization["controller"]["frozen_final_theta"], dtype=np.float64
     )
-    q = controller_q(theta, condition)[0]
+    initial_q = controller_q(theta, condition)[0]
+    expected_initial_q = np.asarray(
+        [-5.048300073899528, -2.2099613642207494], dtype=np.float64
+    )
+    if not np.allclose(initial_q, expected_initial_q, rtol=1e-13, atol=1e-13):
+        raise RuntimeError("registered hero controller output changed")
+    if not np.array_equal(
+        HERO_SYSTEM.contact_nodes, np.asarray(HERO_CONTACT_NODES)
+    ):
+        raise RuntimeError("registered four-contact hero layout changed")
+    expected_positions = np.column_stack(
+        (
+            np.asarray(HERO_CONTACT_COLUMNS, dtype=np.float64) / 32.0,
+            np.zeros(len(HERO_CONTACT_COLUMNS), dtype=np.float64),
+        )
+    )
+    if not np.allclose(
+        HERO_SYSTEM.contact_coordinates,
+        expected_positions,
+        rtol=0.0,
+        atol=1e-14,
+    ):
+        raise RuntimeError("registered four-contact positions changed")
+
+    q = HERO_OPTIMIZED_Q.copy()
     forcing_ratio, frequency_ratio = condition[0]
     omega = float(OMEGA_R * frequency_ratio)
     time_step, forcing = single_tone_forcing(
@@ -228,28 +277,56 @@ def replay_hero(generalization: dict) -> dict:
         DIAGNOSTIC_NUM_PERIODS,
     )
     times = time_step * np.arange(1, NUM_STEPS + 1, dtype=np.float64)
-    passive_preload = np.full((NUM_STEPS, 2), REFERENCE_PRELOAD)
+    num_contacts = len(HERO_CONTACT_COLUMNS)
+    passive_preload = np.full(
+        (NUM_STEPS, num_contacts), REFERENCE_PRELOAD
+    )
     wu_scalar = REFERENCE_PRELOAD + WU_AMPLITUDE * np.sin(
         2.0 * omega * times + WU_PHASE
     )
-    wu_preload = np.repeat(wu_scalar[:, None], 2, axis=1)
+    wu_preload = np.repeat(wu_scalar[:, None], num_contacts, axis=1)
     tape = markov_uniform_bank(
-        32, stream_id=SELECTED_STREAM, iteration=0
+        HERO_NUM_REALIZATIONS,
+        stream_id=SELECTED_STREAM,
+        iteration=0,
+        num_contacts=num_contacts,
     )[SELECTED_CONDITION_INDEX, SELECTED_REALIZATION]
-    _, jumpgrad_preload, _, _ = generate_hard_preload_history(
+    if any(
+        np.array_equal(tape[:, first], tape[:, second])
+        for first in range(num_contacts)
+        for second in range(first + 1, num_contacts)
+    ):
+        raise RuntimeError("registered four-contact tapes are not independent")
+    modes, jumpgrad_preload, _, _ = generate_hard_preload_history(
         jnp.asarray(q),
         jnp.asarray(times),
         jnp.asarray(tape),
         jnp.asarray(omega),
         jnp.asarray(time_step),
     )
+    modes = np.asarray(modes)
+    jumpgrad_preload = np.asarray(jumpgrad_preload)
+    if (
+        jumpgrad_preload.shape != (NUM_STEPS, num_contacts)
+        or modes.shape != (NUM_STEPS, num_contacts)
+        or any(
+            set(np.unique(jumpgrad_preload[:, contact]))
+            != {PRELOAD_LOW, PRELOAD_HIGH}
+            for contact in range(num_contacts)
+        )
+    ):
+        raise RuntimeError("registered hero does not use both hard preloads")
     methods = {
         "passive": simulate_full_field(forcing, passive_preload, time_step),
         "wu": simulate_full_field(forcing, wu_preload, time_step),
         "jumpgrad": simulate_full_field(
-            forcing, np.asarray(jumpgrad_preload), time_step
+            forcing, jumpgrad_preload, time_step
         ),
     }
+    methods["passive"]["preload"] = passive_preload
+    methods["wu"]["preload"] = wu_preload
+    methods["jumpgrad"]["preload"] = jumpgrad_preload
+    methods["jumpgrad"]["modes"] = modes
     frame_indices = np.arange(STABLE_START, STABLE_STOP, FRAME_STRIDE)
     if frame_indices.shape != (NUM_GIF_FRAMES,):
         raise AssertionError("hero frame count changed")
@@ -267,13 +344,15 @@ def replay_hero(generalization: dict) -> dict:
     cell_values = []
     for field in displayed:
         magnitude = np.linalg.norm(field, axis=2)
-        cell_values.append(np.mean(magnitude[:, SYSTEM.cells], axis=2))
+        cell_values.append(
+            np.mean(magnitude[:, HERO_SYSTEM.cells], axis=2)
+        )
     cell_values = np.concatenate([value.ravel() for value in cell_values])
     color_limits = (float(np.min(cell_values)), float(np.max(cell_values)))
 
     vertices = np.concatenate(
         [
-            SYSTEM.points[None, :, :] + deformation_scale * field
+            HERO_SYSTEM.points[None, :, :] + deformation_scale * field
             for field in displayed
         ],
         axis=0,
@@ -289,6 +368,7 @@ def replay_hero(generalization: dict) -> dict:
         (float(minimum[1] - padding[1]), float(maximum_vertex[1] + padding[1])),
     )
     return {
+        "q": q,
         "methods": methods,
         "frame_indices": frame_indices,
         "deformation_scale": deformation_scale,
@@ -299,7 +379,7 @@ def replay_hero(generalization: dict) -> dict:
 
 def _add_beam_panel(axis, method: str, normalization, limits):
     collection = PolyCollection(
-        SYSTEM.points[SYSTEM.cells],
+        HERO_SYSTEM.points[HERO_SYSTEM.cells],
         cmap=HERO_COLORMAP,
         norm=normalization,
         edgecolor=MESH_EDGE_COLOR,
@@ -310,9 +390,10 @@ def _add_beam_panel(axis, method: str, normalization, limits):
         [],
         [],
         s=28,
-        facecolor="white",
+        marker="o",
+        facecolor=PASSIVE_PAD_COLOR,
         edgecolor=FRAME_COLOR,
-        linewidth=1.25,
+        linewidth=0.75,
         zorder=5,
     )
     axis.plot(
@@ -344,6 +425,26 @@ def _add_beam_panel(axis, method: str, normalization, limits):
         fontweight="bold",
     )
     return collection, contacts
+
+
+def _pad_colors(method: str, data: dict, step: int) -> np.ndarray:
+    if method == "passive":
+        return np.tile(
+            mpl.colors.to_rgba(PASSIVE_PAD_COLOR),
+            (len(HERO_CONTACT_COLUMNS), 1),
+        )
+    if method == "wu":
+        normalized = np.clip(
+            (data["preload"][step] - PRELOAD_LOW)
+            / (PRELOAD_HIGH - PRELOAD_LOW),
+            0.0,
+            1.0,
+        )
+        return PAD_CONTINUOUS_COLORMAP(normalized)
+
+    low = np.asarray(mpl.colors.to_rgba(LOW_PAD_COLOR))
+    high = np.asarray(mpl.colors.to_rgba(HIGH_PAD_COLOR))
+    return np.where(data["modes"][step, :, None], high, low)
 
 
 def render_hero(replay: dict) -> None:
@@ -382,14 +483,22 @@ def render_hero(replay: dict) -> None:
     def update(step):
         artists = []
         for method in ("passive", "wu", "jumpgrad"):
-            field = replay["methods"][method]["field"][int(step)]
-            deformed = SYSTEM.points + replay["deformation_scale"] * field
-            collections[method].set_verts(deformed[SYSTEM.cells])
+            data = replay["methods"][method]
+            field = data["field"][int(step)]
+            deformed = (
+                HERO_SYSTEM.points + replay["deformation_scale"] * field
+            )
+            collections[method].set_verts(deformed[HERO_SYSTEM.cells])
             magnitude = np.linalg.norm(field, axis=1)
             collections[method].set_array(
-                np.mean(magnitude[SYSTEM.cells], axis=1)
+                np.mean(magnitude[HERO_SYSTEM.cells], axis=1)
             )
-            contacts[method].set_offsets(deformed[SYSTEM.contact_nodes])
+            contacts[method].set_offsets(
+                deformed[HERO_SYSTEM.contact_nodes]
+            )
+            contacts[method].set_facecolors(
+                _pad_colors(method, data, int(step))
+            )
             artists.extend((collections[method], contacts[method]))
         return artists
 
@@ -637,7 +746,16 @@ def validate_outputs(*, validate_hero: bool = True) -> None:
         raise AssertionError(f"visual output contract changed: {actual}")
     if validate_hero:
         with Image.open(HERO_PATH) as image:
-            if image.n_frames != NUM_GIF_FRAMES or image.info.get("loop") != 0:
+            durations = []
+            for frame in range(image.n_frames):
+                image.seek(frame)
+                durations.append(image.info.get("duration"))
+            if (
+                image.n_frames != NUM_GIF_FRAMES
+                or image.info.get("loop") != 0
+                or image.size != (1200, 430)
+                or set(durations) != {1000 // GIF_FPS}
+            ):
                 raise AssertionError("hero GIF metadata changed")
 
 

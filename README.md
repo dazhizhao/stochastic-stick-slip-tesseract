@@ -12,6 +12,8 @@
   <img src="outputs/jumpgrad_visuals/passive_wu_jumpgrad.gif" width="760" alt="Passive, Wu2019, and JumpGrad beam vibration under the same operating condition">
 </p>
 
+The hero animation uses a four-contact visualization case for clarity; to keep the quantitative study computationally efficient, all results below use the original two-contact benchmark.
+
 ## 1. Problem
 
 We study vibration suppression in a finite-element beam with two friction contacts. A neural controller observes the forcing amplitude and frequency, then changes the transition probabilities of a hard Markov actuator whose preload is always `LOW` or `HIGH`.

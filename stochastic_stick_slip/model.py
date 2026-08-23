@@ -1,4 +1,4 @@
-"""JAX-FEM cantilever dynamics with two coupled hard Jenkins contacts."""
+"""JAX-FEM cantilever dynamics with coupled hard Jenkins contacts."""
 
 from dataclasses import dataclass
 
@@ -159,7 +159,7 @@ def _assemble_tangent(problem: Problem) -> np.ndarray:
 def _assemble_system(
     num_elements_x: int = NUM_ELEMENTS_X,
     num_elements_y: int = NUM_ELEMENTS_Y,
-    contact_columns: tuple[int, int] = CONTACT_COLUMNS,
+    contact_columns: tuple[int, ...] = CONTACT_COLUMNS,
 ) -> FEMSystem:
     meshio_mesh = rectangle_mesh(
         Nx=num_elements_x,
@@ -218,8 +218,11 @@ def _assemble_system(
             )
         )
         contact_nodes.append(int(matches[0]))
-    contacts_full = np.zeros((stiffness_full.shape[0], 2))
-    contacts_full[2 * np.asarray(contact_nodes) + 1, np.arange(2)] = 1.0
+    num_contacts = len(contact_nodes)
+    contacts_full = np.zeros((stiffness_full.shape[0], num_contacts))
+    contacts_full[
+        2 * np.asarray(contact_nodes) + 1, np.arange(num_contacts)
+    ] = 1.0
 
     stiffness = stiffness_full[np.ix_(free_dofs, free_dofs)]
     mass = mass_full[np.ix_(free_dofs, free_dofs)]
@@ -409,6 +412,57 @@ def _select_contact_regime(
     return contact_force, contact_displacement, regime
 
 
+def _select_contact_regime_box(
+    free_contact_displacement,
+    slider_position,
+    contact_compliance,
+    friction_limit,
+):
+    """Solve the same Jenkins law for more than two coupled contacts."""
+    force_tolerance = 1e-11 * (1.0 + friction_limit)
+
+    def project(_iteration, contact_force):
+        relative_displacement = (
+            free_contact_displacement
+            + contact_compliance @ contact_force
+            - slider_position
+        )
+        elastic_force = -CONTACT_STIFFNESS * relative_displacement
+        return jnp.clip(elastic_force, -friction_limit, friction_limit)
+
+    contact_force = jax.lax.fori_loop(
+        0,
+        8,
+        project,
+        jnp.zeros_like(free_contact_displacement),
+    )
+    contact_displacement = (
+        free_contact_displacement + contact_compliance @ contact_force
+    )
+    relative_displacement = contact_displacement - slider_position
+    elastic_force = -CONTACT_STIFFNESS * relative_displacement
+    projected_force = jnp.clip(
+        elastic_force, -friction_limit, friction_limit
+    )
+    converged = jnp.all(
+        jnp.abs(contact_force - projected_force) <= force_tolerance
+    )
+    contact_force = jnp.where(
+        converged, contact_force, jnp.full_like(contact_force, jnp.nan)
+    )
+    contact_displacement = jnp.where(
+        converged,
+        contact_displacement,
+        jnp.full_like(contact_displacement, jnp.nan),
+    )
+    sticking = jnp.abs(elastic_force) <= friction_limit + force_tolerance
+    regime = jnp.where(sticking, 0, jnp.sign(relative_displacement)).astype(
+        jnp.int64
+    )
+    regime = jnp.where(converged, regime, jnp.ones_like(regime))
+    return contact_force, contact_displacement, regime
+
+
 def _build_mechanics_batch_impl(
     system: FEMSystem,
     return_full_displacement: bool,
@@ -432,13 +486,19 @@ def _build_mechanics_batch_impl(
         contact_response = _factor_solve(cholesky_factor, contacts)
         contact_compliance = contacts.T @ contact_response
         zero_displacement = jnp.zeros(stiffness.shape[0], dtype=jnp.float64)
+        num_contacts = contacts.shape[1]
+        select_contact_regime = (
+            _select_contact_regime
+            if num_contacts == 2
+            else _select_contact_regime_box
+        )
 
         def simulate_seed(seed_forcing, seed_preload):
             initial_state = (
                 zero_displacement,
                 zero_displacement,
-                jnp.zeros(2, dtype=jnp.float64),
-                jnp.zeros(2, dtype=jnp.bool_),
+                jnp.zeros(num_contacts, dtype=jnp.float64),
+                jnp.zeros(num_contacts, dtype=jnp.bool_),
             )
 
             def step(state, step_inputs):
@@ -453,7 +513,7 @@ def _build_mechanics_batch_impl(
                 )
                 free_contact_displacement = contacts.T @ free_solution
                 contact_force, contact_displacement, regime = (
-                    _select_contact_regime(
+                    select_contact_regime(
                         free_contact_displacement,
                         slider_position,
                         contact_compliance,
@@ -558,7 +618,7 @@ def build_batch_simulator(system: FEMSystem, fourier_basis: jax.Array):
             base_preload, coefficients, fourier_basis
         )
         per_contact_preload = jnp.repeat(
-            shared_preload[..., None], 2, axis=-1
+            shared_preload[..., None], system.contacts.shape[1], axis=-1
         )
         return mechanics(damping, forcing, per_contact_preload)
 
@@ -585,11 +645,17 @@ def build_trajectory_simulator(system: FEMSystem, fourier_basis: jax.Array):
         contact_response = _factor_solve(cholesky_factor, contacts)
         contact_compliance = contacts.T @ contact_response
         zero_displacement = jnp.zeros(stiffness.shape[0], dtype=jnp.float64)
+        num_contacts = contacts.shape[1]
+        select_contact_regime = (
+            _select_contact_regime
+            if num_contacts == 2
+            else _select_contact_regime_box
+        )
         initial_state = (
             zero_displacement,
             zero_displacement,
-            jnp.zeros(2, dtype=jnp.float64),
-            jnp.zeros(2, dtype=jnp.bool_),
+            jnp.zeros(num_contacts, dtype=jnp.float64),
+            jnp.zeros(num_contacts, dtype=jnp.bool_),
         )
 
         def step(state, step_inputs):
@@ -603,11 +669,13 @@ def build_trajectory_simulator(system: FEMSystem, fourier_basis: jax.Array):
                 cholesky_factor, history + load * external_force
             )
             free_contact_displacement = contacts.T @ free_solution
-            contact_force, contact_displacement, regime = _select_contact_regime(
-                free_contact_displacement,
-                slider_position,
-                contact_compliance,
-                FRICTION_COEFFICIENT * current_preload,
+            contact_force, contact_displacement, regime = (
+                select_contact_regime(
+                    free_contact_displacement,
+                    slider_position,
+                    contact_compliance,
+                    FRICTION_COEFFICIENT * current_preload,
+                )
             )
             displacement = free_solution + contact_response @ contact_force
             velocity = (displacement - previous) / dt
