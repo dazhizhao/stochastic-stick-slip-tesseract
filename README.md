@@ -106,17 +106,16 @@ The hero uses four contacts for visual clarity; the quantitative results use the
 
 ## 5. Reproduce
 
-Python 3.12 and [uv](https://docs.astral.sh/uv/) are required.
+With Python 3.12 and [uv](https://docs.astral.sh/uv/) installed, clone the repository and run the JumpGrad demo:
 
 ```bash
+git clone https://github.com/dazhizhao/stochastic-stick-slip-tesseract.git
+cd stochastic-stick-slip-tesseract
 uv sync
 uv run python scripts/run_jumpgrad_end_to_end.py
-uv run python scripts/run_jumpgrad_generalization.py
-uv run --with matplotlib==3.11.1 --with pillow==12.3.0 \
-  python scripts/render_jumpgrad_visuals.py
 ```
 
-Add `--train` to `run_jumpgrad_end_to_end.py` to run the complete registered 100-update experiment instead of the quick two-Tesseract demo.
+This runs the quick end-to-end Tesseract demo, including the neural controller, hard stochastic mechanics, and backward gradient propagation.
 
 ## 6. References
 
