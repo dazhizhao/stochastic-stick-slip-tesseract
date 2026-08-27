@@ -43,7 +43,7 @@ backward through Tesseract
 The [`jumpgrad_controller`](tesseracts/jumpgrad_controller/tesseract_api.py) Tesseract maps operating conditions to `q=[a2,b2]`. The [`wu_v2_markov_fem`](tesseracts/wu_v2_markov_fem/tesseract_api.py) Tesseract converts `q` and explicit random tapes into hard preload histories, advances the beam response, and returns the vibration objective.
 
 <p align="center">
-  <img src="outputs/jumpgrad_visuals/tesseract_pipeline.png?v=f04d3c3" width="760" alt="Two peer Tesseract blocks composing a PyTorch controller with hard stochastic JAX-FEM mechanics">
+  <img src="https://raw.githubusercontent.com/dazhizhao/stochastic-stick-slip-tesseract/f04d3c37156d871dc18d5d149c7584c25f162de8/outputs/jumpgrad_visuals/tesseract_pipeline.png" width="760" alt="Two peer Tesseract blocks composing a PyTorch controller with hard stochastic JAX-FEM mechanics">
 </p>
 
 The two Tesseracts form the end-to-end system. The controller has 354 parameters, and the registered experiment trains them for 100 Adam updates using the hard stochastic mechanics.
