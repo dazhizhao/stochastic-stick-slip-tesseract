@@ -14,9 +14,9 @@
 
 ## 1. Problem
 
-We study vibration suppression in a finite-element beam with two friction contacts. A neural controller reads the forcing amplitude and frequency and sets the transition probabilities of a hard Markov actuator. Its preload is always `LOW` or `HIGH`.
+We study vibration suppression in a finite-element beam with two semi-active friction dampers. Each actuator switches between `LOW` and `HIGH` clamping-force modes, corresponding to two fixed normal preloads. In practice, actuator response delay, sensor noise, and contact-state fluctuations make the realized switching times uncertain, so a Markov jump process represents this aggregate mode-switching uncertainty. The friction law and its coefficients remain fixed; randomness enters through the actuator switching times. Given the forcing amplitude and frequency, the neural controller sets the transition probabilities and learns a policy that suppresses vibration despite the stochastic switching.
 
-The switches are discrete and stochastic. With a fixed random tape, a small controller perturbation may leave the sampled switching trajectory unchanged. Ordinary automatic differentiation then returns no useful mechanics gradient along that path.
+With a fixed random tape, a small controller perturbation may leave the sampled switching trajectory unchanged. Ordinary automatic differentiation then returns no useful mechanics gradient along that path.
 
 JumpGrad trains the neural controller end to end and keeps every switching event discrete.
 
