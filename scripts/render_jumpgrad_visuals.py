@@ -1,4 +1,4 @@
-"""Render the fresh-seed held-out figure and frozen JumpGrad hero GIF."""
+"""Render the frozen JumpGrad README visualizations."""
 
 from __future__ import annotations
 
@@ -18,12 +18,16 @@ mpl.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation, PillowWriter
 from matplotlib.collections import PolyCollection
+from matplotlib.patches import FancyBboxPatch, Rectangle
 import numpy as np
 from PIL import Image
 
 
-HELD_OUT_ONLY_REQUESTED = "--held-out-only" in sys.argv[1:]
-if not HELD_OUT_ONLY_REQUESTED:
+LIGHTWEIGHT_RENDER_REQUESTED = any(
+    option in sys.argv[1:]
+    for option in ("--held-out-only", "--pipeline-only")
+)
+if not LIGHTWEIGHT_RENDER_REQUESTED:
     import jax
 
     jax.config.update("jax_enable_x64", True)
@@ -66,6 +70,7 @@ GENERALIZATION_PATH = ROOT / "outputs/jumpgrad_generalization/results.json"
 OUTPUT_DIRECTORY = ROOT / "outputs/jumpgrad_visuals"
 HERO_PATH = OUTPUT_DIRECTORY / "passive_wu_jumpgrad.gif"
 HELD_OUT_PATH = OUTPUT_DIRECTORY / "held_out.png"
+PIPELINE_PATH = OUTPUT_DIRECTORY / "tesseract_pipeline.png"
 EXPECTED_OUTPUTS = (
     "gradient_story.png",
     "held_out.png",
@@ -95,7 +100,7 @@ FROZEN_HELD_OUT_CONDITIONS = np.asarray(
     ],
     dtype=np.float64,
 )
-if not HELD_OUT_ONLY_REQUESTED:
+if not LIGHTWEIGHT_RENDER_REQUESTED:
     STABLE_START = 20 * STEPS_PER_PERIOD
     STABLE_STOP = 24 * STEPS_PER_PERIOD
     TARGET_DEFORMATION = 0.22 * BEAM_LENGTH
@@ -123,7 +128,7 @@ METHOD_LABELS = {
     "jumpgrad": "JumpGrad",
 }
 
-if not HELD_OUT_ONLY_REQUESTED:
+if not LIGHTWEIGHT_RENDER_REQUESTED:
     HERO_SYSTEM = _assemble_system(
         num_elements_x=32,
         num_elements_y=4,
@@ -738,6 +743,177 @@ def render_held_out(result: dict) -> tuple[float, float, float, int]:
     return initial_mean, trained_mean, improvement_mean, improved_count
 
 
+def render_tesseract_pipeline(path: Path = PIPELINE_PATH) -> None:
+    """Render the two Tesseract blocks with separate forward/backward lanes."""
+    with mpl.rc_context(
+        {
+            "font.family": "sans-serif",
+            "font.sans-serif": ["DejaVu Sans"],
+            "text.color": FRAME_COLOR,
+        }
+    ):
+        figure, axis = plt.subplots(figsize=(10.0, 4.0), dpi=100)
+        figure.subplots_adjust(left=0.0, right=1.0, bottom=0.0, top=1.0)
+        axis.set_xlim(0.0, 1.0)
+        axis.set_ylim(0.0, 1.0)
+        axis.axis("off")
+
+        box_y = 0.15
+        box_width = 0.29
+        box_height = 0.70
+        boxes = (
+            {
+                "x": 0.15,
+                "accent": "#4F86B4",
+                "header": "TESSERACT BLOCK 01",
+                "name": "JumpGrad Controller",
+                "lines": (
+                    ("PyTorch MLP", 0.50),
+                    ("VJP: PyTorch autograd", 0.38),
+                ),
+            },
+            {
+                "x": 0.56,
+                "accent": "#16879A",
+                "header": "TESSERACT BLOCK 02",
+                "name": "Stochastic Mechanics",
+                "lines": (
+                    ("Hard Markov LOW / HIGH", 0.52),
+                    ("JAX-FEM + Jenkins friction", 0.42),
+                    ("VJP: CRN centered finite diff.", 0.32),
+                ),
+            },
+        )
+
+        for spec in boxes:
+            x = spec["x"]
+            axis.add_patch(
+                FancyBboxPatch(
+                    (x, box_y),
+                    box_width,
+                    box_height,
+                    boxstyle="round,pad=0.008,rounding_size=0.012",
+                    facecolor="white",
+                    edgecolor=FRAME_COLOR,
+                    linewidth=1.2,
+                )
+            )
+            axis.add_patch(
+                Rectangle(
+                    (x + 0.012, box_y + box_height - 0.085),
+                    box_width - 0.024,
+                    0.067,
+                    facecolor=spec["accent"],
+                    edgecolor="none",
+                )
+            )
+            axis.text(
+                x + box_width / 2.0,
+                box_y + box_height - 0.0515,
+                spec["header"],
+                color="white",
+                fontsize=11.0,
+                fontweight="bold",
+                ha="center",
+                va="center",
+            )
+            axis.text(
+                x + box_width / 2.0,
+                0.67,
+                spec["name"],
+                fontsize=16.0,
+                fontweight="bold",
+                ha="center",
+                va="center",
+            )
+            for line, line_y in spec["lines"]:
+                axis.text(
+                    x + box_width / 2.0,
+                    line_y,
+                    line,
+                    fontsize=12.0,
+                    ha="center",
+                    va="center",
+                )
+
+        arrow = {
+            "arrowstyle": "-|>",
+            "color": FRAME_COLOR,
+            "linewidth": 1.4,
+            "mutation_scale": 14,
+            "shrinkA": 0,
+            "shrinkB": 0,
+        }
+        forward_y = 0.60
+        backward_y = 0.25
+
+        axis.text(
+            0.065,
+            forward_y,
+            "Operating\ncondition",
+            fontsize=12.0,
+            fontweight="bold",
+            ha="center",
+            va="center",
+            linespacing=1.25,
+        )
+        axis.annotate(
+            "", xy=(0.142, forward_y), xytext=(0.108, forward_y), arrowprops=arrow
+        )
+
+        axis.annotate(
+            "", xy=(0.552, forward_y), xytext=(0.448, forward_y), arrowprops=arrow
+        )
+        axis.text(
+            0.50,
+            0.655,
+            "q = [a2, b2]",
+            fontsize=11.5,
+            ha="center",
+            va="bottom",
+        )
+        axis.annotate(
+            "", xy=(0.448, backward_y), xytext=(0.552, backward_y), arrowprops=arrow
+        )
+        axis.text(
+            0.50,
+            0.205,
+            "q cotangent",
+            fontsize=11.0,
+            ha="center",
+            va="top",
+        )
+
+        axis.annotate(
+            "", xy=(0.890, forward_y), xytext=(0.858, forward_y), arrowprops=arrow
+        )
+        axis.text(
+            0.94,
+            forward_y,
+            "Vibration\nobjective",
+            fontsize=12.0,
+            fontweight="bold",
+            ha="center",
+            va="center",
+            linespacing=1.25,
+        )
+        axis.annotate(
+            "", xy=(0.858, backward_y), xytext=(0.898, backward_y), arrowprops=arrow
+        )
+        axis.text(
+            0.92,
+            0.205,
+            "loss cotangent",
+            fontsize=11.0,
+            ha="center",
+            va="top",
+        )
+
+        path.parent.mkdir(parents=True, exist_ok=True)
+        figure.savefig(path, dpi=300, facecolor="white")
+        plt.close(figure)
+
+
 def validate_outputs(*, validate_hero: bool = True) -> None:
     actual = tuple(
         sorted(path.name for path in OUTPUT_DIRECTORY.iterdir() if path.is_file())
@@ -774,8 +950,17 @@ def main() -> None:
         action="store_true",
         help="render only the frozen three-method hero animation",
     )
+    output_mode.add_argument(
+        "--pipeline-only",
+        action="store_true",
+        help="render only the two-Tesseract pipeline figure",
+    )
     arguments = parser.parse_args()
     OUTPUT_DIRECTORY.mkdir(parents=True, exist_ok=True)
+    if arguments.pipeline_only:
+        render_tesseract_pipeline()
+        print(f"output={PIPELINE_PATH.relative_to(ROOT)}")
+        return
     result = load_generalization()
     if arguments.held_out_only:
         initial_mean, trained_mean, improvement_mean, improved_count = (
